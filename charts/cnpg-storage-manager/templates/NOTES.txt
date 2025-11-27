@@ -1,0 +1,46 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your CNPG Storage Manager has been deployed to namespace: {{ .Release.Namespace }}
+
+To verify the installation:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "cnpg-storage-manager.name" . }}
+
+To check the controller logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "cnpg-storage-manager.name" . }} -f
+
+To create a StoragePolicy:
+  kubectl apply -f - <<EOF
+  apiVersion: cnpg.supporttools.io/v1alpha1
+  kind: StoragePolicy
+  metadata:
+    name: my-policy
+    namespace: default
+  spec:
+    selector:
+      matchLabels:
+        environment: production
+    thresholds:
+      warning: 70
+      critical: 80
+      expansion: 85
+      emergency: 90
+    expansion:
+      enabled: true
+      percentage: 50
+    dryRun: true  # Remove to enable actual actions
+  EOF
+
+To list StoragePolicies:
+  kubectl get storagepolicies -A
+
+To list StorageEvents:
+  kubectl get storageevents -A
+
+{{- if not .Values.crds.install }}
+
+IMPORTANT: CRDs are not installed with this chart. Make sure to install them manually:
+  kubectl apply -f https://raw.githubusercontent.com/supporttools/cnpg-storage-manager/main/config/crd/bases/cnpg.supporttools.io_storagepolicies.yaml
+  kubectl apply -f https://raw.githubusercontent.com/supporttools/cnpg-storage-manager/main/config/crd/bases/cnpg.supporttools.io_storageevents.yaml
+{{- end }}
+
+For more information, visit: https://github.com/supporttools/cnpg-storage-manager

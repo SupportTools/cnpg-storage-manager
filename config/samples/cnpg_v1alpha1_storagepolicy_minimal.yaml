@@ -1,0 +1,33 @@
+apiVersion: cnpg.supporttools.io/v1alpha1
+kind: StoragePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-storage-manager
+    app.kubernetes.io/managed-by: kustomize
+  name: development-postgres
+  namespace: dev
+spec:
+  # Select all CNPG clusters in dev namespace
+  selector:
+    matchLabels:
+      environment: development
+
+  # Basic thresholds - more lenient for development
+  thresholds:
+    warning: 80
+    critical: 90
+    expansion: 95
+
+  # Expansion enabled with defaults
+  expansion:
+    enabled: true
+    percentage: 25
+    minIncrementGi: 1
+    maxSize: 20Gi
+
+  # No WAL cleanup in dev - let it accumulate for debugging
+  walCleanup:
+    enabled: false
+
+  # Dry run mode - just monitor, don't take action
+  dryRun: true

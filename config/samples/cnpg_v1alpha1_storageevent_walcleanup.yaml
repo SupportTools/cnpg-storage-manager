@@ -1,0 +1,37 @@
+apiVersion: cnpg.supporttools.io/v1alpha1
+kind: StorageEvent
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-storage-manager
+    app.kubernetes.io/managed-by: kustomize
+    cnpg.supporttools.io/cluster: production-postgres
+    cnpg.supporttools.io/event-type: wal-cleanup
+  name: production-postgres-walcleanup-20251126-120000
+  namespace: database
+spec:
+  # Reference to the CNPG cluster
+  clusterRef:
+    name: production-postgres
+    namespace: database
+
+  # Reference to the policy that triggered this
+  policyRef:
+    name: production-postgres
+    namespace: database
+
+  # Type of event
+  eventType: wal-cleanup
+
+  # What triggered this event
+  trigger: threshold-breach
+
+  reason: "Storage usage reached emergency threshold (90%)"
+
+  # WAL cleanup details
+  walCleanup:
+    podName: production-postgres-1
+    filesRemoved: 25
+    spaceFreedBytes: 419430400  # 400MB
+    oldestRetained: "000000010000000000000050"
+
+  dryRun: false

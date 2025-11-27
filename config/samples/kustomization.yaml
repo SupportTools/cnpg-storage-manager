@@ -1,0 +1,8 @@
+## Append samples of your project ##
+resources:
+- cnpg_v1alpha1_storagepolicy.yaml
+- cnpg_v1alpha1_storagepolicy_minimal.yaml
+- cnpg_v1alpha1_storagepolicy_pagerduty.yaml
+- cnpg_v1alpha1_storageevent.yaml
+- cnpg_v1alpha1_storageevent_walcleanup.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

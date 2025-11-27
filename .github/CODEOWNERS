@@ -1,0 +1,23 @@
+# CODEOWNERS file for CNPG Storage Manager
+# These owners will be requested for review when someone opens a pull request.
+
+# Global owners
+* @supporttools/cnpg-storage-manager-maintainers
+
+# API definitions
+/api/ @supporttools/cnpg-storage-manager-maintainers
+
+# Controllers
+/internal/controller/ @supporttools/cnpg-storage-manager-maintainers
+
+# Core packages
+/pkg/ @supporttools/cnpg-storage-manager-maintainers
+
+# Helm chart
+/charts/ @supporttools/cnpg-storage-manager-maintainers
+
+# CI/CD
+/.github/ @supporttools/cnpg-storage-manager-maintainers
+
+# Documentation
+*.md @supporttools/cnpg-storage-manager-maintainers

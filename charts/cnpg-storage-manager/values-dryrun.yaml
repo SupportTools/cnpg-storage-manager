@@ -1,0 +1,59 @@
+# values-dryrun.yaml
+# Example values for testing on RKE2 cluster with dry-run mode enabled
+# Usage: helm install cnpg-storage-manager ./charts/cnpg-storage-manager -f ./charts/cnpg-storage-manager/values-dryrun.yaml
+
+# Enable global dry-run mode - NO actual changes will be made
+# The controller will still:
+# - Discover CNPG clusters
+# - Collect storage metrics
+# - Evaluate thresholds
+# - Log what actions WOULD be taken
+# But it will NOT:
+# - Expand PVCs
+# - Delete WAL files
+dryRun: true
+
+# Enable development logging for verbose output
+logging:
+  level: debug
+  development: true
+
+# Enable metrics for observability
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: false  # Enable if Prometheus Operator is installed
+
+# Default resource limits suitable for testing
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Create a default policy for testing
+defaultPolicy:
+  enabled: true
+  name: test-storage-policy
+  selector:
+    matchLabels: {}  # Matches all CNPG clusters
+  thresholds:
+    warning: 70
+    critical: 80
+    expansion: 85
+    emergency: 90
+  expansion:
+    enabled: true
+    percentage: 20
+    minIncrementGi: 1
+    maxSizeGi: 100
+    cooldownMinutes: 5  # Short cooldown for testing
+  walCleanup:
+    enabled: true
+    retainCount: 5
+    requireArchived: true
+    cooldownMinutes: 5
+  dryRun: true  # Also set per-policy dry-run

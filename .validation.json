@@ -1,0 +1,196 @@
+{
+  "_comment": "Validation configuration for CNPG Storage Manager",
+  "validation": {
+    "enabled": true,
+    "parallel_jobs": 4,
+    "fail_fast": false,
+    "quick_mode": {
+      "enabled": true,
+      "skip_tests": true,
+      "skip_gosec": true,
+      "skip_coverage": true
+    }
+  },
+  "components": {
+    "controller": {
+      "enabled": true,
+      "path": "controllers",
+      "test_timeout": "10m",
+      "coverage_threshold": 80,
+      "coverage_exclude": [
+        "controllers/suite_test.go"
+      ],
+      "requires_envtest": true
+    },
+    "api": {
+      "enabled": true,
+      "path": "api/v1alpha1",
+      "test_timeout": "5m",
+      "coverage_threshold": 90,
+      "coverage_exclude": [
+        "api/v1alpha1/groupversion_info.go",
+        "api/v1alpha1/zz_generated.deepcopy.go"
+      ]
+    },
+    "pkg_metrics": {
+      "enabled": true,
+      "path": "pkg/metrics",
+      "test_timeout": "5m",
+      "coverage_threshold": 85
+    },
+    "pkg_policy": {
+      "enabled": true,
+      "path": "pkg/policy",
+      "test_timeout": "5m",
+      "coverage_threshold": 85
+    },
+    "pkg_remediation": {
+      "enabled": true,
+      "path": "pkg/remediation",
+      "test_timeout": "5m",
+      "coverage_threshold": 80
+    },
+    "pkg_alerting": {
+      "enabled": true,
+      "path": "pkg/alerting",
+      "test_timeout": "5m",
+      "coverage_threshold": 80
+    },
+    "pkg_exec": {
+      "enabled": true,
+      "path": "pkg/exec",
+      "test_timeout": "5m",
+      "coverage_threshold": 75
+    }
+  },
+  "tools": {
+    "gofmt": {
+      "enabled": true,
+      "check_only": true,
+      "fix": false
+    },
+    "goimports": {
+      "enabled": true,
+      "local": "github.com/supporttools/cnpg-storage-manager"
+    },
+    "go_vet": {
+      "enabled": true,
+      "flags": [
+        "-all"
+      ]
+    },
+    "staticcheck": {
+      "enabled": true,
+      "checks": [
+        "all",
+        "-ST1000",
+        "-ST1003"
+      ],
+      "fail_on": [
+        "error",
+        "warning"
+      ]
+    },
+    "gosec": {
+      "enabled": true,
+      "severity": "medium",
+      "confidence": "medium",
+      "exclude_rules": [
+        "G104",
+        "G304"
+      ],
+      "scan_tests": false
+    },
+    "golangci_lint": {
+      "enabled": true,
+      "config": ".golangci.yml",
+      "timeout": "5m"
+    },
+    "go_test": {
+      "enabled": true,
+      "flags": [
+        "-v",
+        "-race",
+        "-cover"
+      ],
+      "timeout": "15m",
+      "coverage_mode": "atomic",
+      "coverage_profile": "coverage.txt"
+    }
+  },
+  "kubebuilder": {
+    "enabled": true,
+    "validate_manifests": true,
+    "validate_rbac": true,
+    "validate_crd": true,
+    "envtest_version": "1.28.0"
+  },
+  "repository": {
+    "go_version": "1.21",
+    "go_mod_tidy_check": true,
+    "cleanliness_check": true,
+    "allowed_root_files": [
+      ".gitignore",
+      ".gitattributes",
+      ".validation.json",
+      ".golangci.yml",
+      "README.md",
+      "LICENSE",
+      "CLAUDE.md",
+      "Makefile",
+      "Dockerfile",
+      "go.mod",
+      "go.sum",
+      "design.md",
+      "PROJECT"
+    ],
+    "forbidden_patterns": [
+      "*.swp",
+      "*.swo",
+      "*~",
+      ".DS_Store",
+      "*.key",
+      "*.pem",
+      "credentials.json",
+      "secrets.yaml"
+    ]
+  },
+  "ci_cd": {
+    "mirror_github_actions": true,
+    "cache_enabled": true,
+    "cache_paths": [
+      "~/.cache/go-build",
+      "~/go/pkg/mod"
+    ]
+  },
+  "reporting": {
+    "verbose": true,
+    "show_passed": true,
+    "show_skipped": true,
+    "color_output": true,
+    "summary": true
+  },
+  "pre_commit": {
+    "enabled": true,
+    "auto_fix": false,
+    "checks": [
+      "gofmt",
+      "go_vet"
+    ]
+  },
+  "pre_push": {
+    "enabled": true,
+    "run_full_validation": true,
+    "allow_skip": false,
+    "checks": [
+      "go_version",
+      "cleanliness",
+      "gofmt",
+      "go_vet",
+      "staticcheck",
+      "gosec",
+      "tests",
+      "manifests"
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+apiVersion: cnpg.supporttools.io/v1alpha1
+kind: StoragePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-storage-manager
+    app.kubernetes.io/managed-by: kustomize
+  name: critical-postgres
+  namespace: production
+spec:
+  # Select critical database clusters
+  selector:
+    matchLabels:
+      tier: critical
+      environment: production
+
+  # Aggressive thresholds for critical databases
+  thresholds:
+    warning: 60
+    critical: 70
+    expansion: 75
+    emergency: 85
+
+  # Expansion settings
+  expansion:
+    enabled: true
+    percentage: 100       # Double the size when expanding
+    minIncrementGi: 10    # At least 10Gi increments
+    maxSize: 500Gi        # Large maximum for critical DBs
+    cooldownMinutes: 60   # 1 hour between expansions
+
+  # WAL cleanup for emergencies
+  walCleanup:
+    enabled: true
+    retainCount: 20       # Keep more WAL files for point-in-time recovery
+    requireArchived: true
+    cooldownMinutes: 30
+
+  # Circuit breaker
+  circuitBreaker:
+    maxFailures: 5
+    resetMinutes: 120
+    scope: per-cluster
+
+  # Multi-channel alerting with PagerDuty
+  alerting:
+    channels:
+      - type: alertmanager
+        endpoint: "http://alertmanager.monitoring:9093"
+      - type: slack
+        webhookSecret: "production/slack-webhook"
+        channel: "#critical-alerts"
+      - type: pagerduty
+        routingKeySecret: "production/pagerduty-key"
+    suppressDuringRemediation: true
+    escalationMinutes: 5  # Fast escalation for critical systems
+
+  dryRun: false

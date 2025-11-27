@@ -1,0 +1,106 @@
+# Default values for cnpg-storage-manager
+
+replicaCount: 1
+
+# Global dry-run mode
+# When enabled, no actual changes are made to PVCs or WAL files.
+# This is useful for testing and validation before enabling actual remediation.
+# This setting takes precedence over individual policy dryRun settings.
+dryRun: false
+
+image:
+  repository: ghcr.io/supporttools/cnpg-storage-manager
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Leader election configuration
+leaderElection:
+  enabled: true
+
+# Metrics configuration
+metrics:
+  enabled: true
+  port: 8080
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# Health probes
+health:
+  port: 8081
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# Logging configuration
+logging:
+  level: info  # debug, info, warn, error
+  development: false
+
+# Install CRDs with the chart
+crds:
+  install: true
+
+# Default StoragePolicy (optional)
+defaultPolicy:
+  enabled: false
+  name: default-storage-policy
+  selector:
+    matchLabels: {}
+  thresholds:
+    warning: 70
+    critical: 80
+    expansion: 85
+    emergency: 90
+  expansion:
+    enabled: true
+    percentage: 50
+    minIncrementGi: 5
+    cooldownMinutes: 30
+  walCleanup:
+    enabled: true
+    retainCount: 10
+    requireArchived: true
+    cooldownMinutes: 15
+  dryRun: false

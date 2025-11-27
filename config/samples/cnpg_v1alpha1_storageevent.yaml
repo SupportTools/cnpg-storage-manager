@@ -1,0 +1,36 @@
+apiVersion: cnpg.supporttools.io/v1alpha1
+kind: StorageEvent
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-storage-manager
+    app.kubernetes.io/managed-by: kustomize
+    cnpg.supporttools.io/cluster: production-postgres
+    cnpg.supporttools.io/event-type: expansion
+  name: production-postgres-expansion-20251126-103000
+  namespace: database
+spec:
+  # Reference to the CNPG cluster
+  clusterRef:
+    name: production-postgres
+    namespace: database
+
+  # Type of event
+  eventType: expansion
+
+  # What triggered this event
+  trigger: threshold-breach
+
+  # Expansion details
+  expansion:
+    originalSize: 10Gi
+    requestedSize: 15Gi
+    affectedPVCs:
+      - name: production-postgres-1
+        node: worker-1
+      - name: production-postgres-2
+        node: worker-2
+      - name: production-postgres-3
+        node: worker-3
+
+  # Not a dry run
+  dryRun: false

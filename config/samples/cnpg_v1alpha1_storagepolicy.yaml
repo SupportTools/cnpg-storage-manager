@@ -1,0 +1,55 @@
+apiVersion: cnpg.supporttools.io/v1alpha1
+kind: StoragePolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: cnpg-storage-manager
+    app.kubernetes.io/managed-by: kustomize
+  name: production-postgres
+  namespace: database
+spec:
+  # Select CNPG clusters with environment=production label
+  selector:
+    matchLabels:
+      environment: production
+
+  # Storage usage thresholds (percentage of PVC capacity)
+  thresholds:
+    warning: 70      # Generate warning alert
+    critical: 80     # Generate critical alert
+    expansion: 85    # Trigger automatic expansion
+    emergency: 90    # Trigger WAL cleanup
+
+  # PVC expansion settings
+  expansion:
+    enabled: true
+    percentage: 50        # Expand by 50%
+    minIncrementGi: 5     # Minimum 5Gi expansion
+    maxSize: 100Gi        # Hard limit
+    cooldownMinutes: 30   # Minimum time between expansions
+
+  # WAL cleanup settings (pg_archivecleanup)
+  walCleanup:
+    enabled: true
+    retainCount: 10       # Keep at least 10 WAL files
+    requireArchived: true # Only clean archived files
+    cooldownMinutes: 15
+
+  # Circuit breaker to prevent action loops
+  circuitBreaker:
+    maxFailures: 3
+    resetMinutes: 60
+    scope: per-cluster
+
+  # Alerting configuration
+  alerting:
+    channels:
+      - type: alertmanager
+        endpoint: "http://alertmanager:9093"
+      - type: slack
+        webhookSecret: "slack-webhook-secret"
+        channel: "#db-alerts"
+    suppressDuringRemediation: true
+    escalationMinutes: 15
+
+  # Set to true for testing without taking action
+  dryRun: false
