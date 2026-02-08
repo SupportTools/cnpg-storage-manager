@@ -106,6 +106,21 @@ rules:
       - clusters/status
     verbs:
       - get
+  # ObjectStore access for barman-cloud plugin backup status
+  - apiGroups:
+      - barmancloud.cnpg.io
+    resources:
+      - objectstores
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - barmancloud.cnpg.io
+    resources:
+      - objectstores/status
+    verbs:
+      - get
   - apiGroups:
       - storage.k8s.io
     resources:
