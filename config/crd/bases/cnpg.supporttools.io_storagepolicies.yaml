@@ -106,6 +106,41 @@ spec:
                       remediation is active
                     type: boolean
                 type: object
+              backupMonitoring:
+                description: BackupMonitoring defines backup and WAL archiving monitoring
+                  settings
+                properties:
+                  alertOnNoBackupConfigured:
+                    default: true
+                    description: AlertOnNoBackupConfigured alerts if a cluster has
+                      no backup configured
+                    type: boolean
+                  enabled:
+                    default: true
+                    description: Enabled determines if backup monitoring is enabled
+                    type: boolean
+                  maxBackupAgeHours:
+                    default: 24
+                    description: |-
+                      MaxBackupAgeHours is the maximum age of the last successful backup before alerting
+                      Set to 0 to disable backup age monitoring
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  maxRecoveryPointAgeHours:
+                    default: 168
+                    description: |-
+                      MaxRecoveryPointAgeHours is the maximum age of the first recovery point before alerting
+                      Set to 0 to disable recovery point age monitoring
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  requireContinuousArchiving:
+                    default: true
+                    description: RequireContinuousArchiving alerts if WAL archiving
+                      is not working
+                    type: boolean
+                type: object
               circuitBreaker:
                 description: CircuitBreaker defines circuit breaker settings
                 properties:
@@ -370,6 +405,36 @@ spec:
                   description: ManagedCluster represents a cluster managed by this
                     policy
                   properties:
+                    backupStatus:
+                      description: BackupStatus contains backup-related status information
+                      properties:
+                        backupConfigured:
+                          description: BackupConfigured indicates if backups are configured
+                            for the cluster
+                          type: boolean
+                        backupHealthStatus:
+                          description: BackupStatus is the overall backup health status
+                          type: string
+                        continuousArchivingWorking:
+                          description: ContinuousArchivingWorking indicates if WAL
+                            archiving is functioning
+                          type: boolean
+                        firstRecoverabilityPoint:
+                          description: FirstRecoverabilityPoint is the timestamp of
+                            the oldest recoverable point
+                          format: date-time
+                          type: string
+                        lastBackupAgeHours:
+                          description: LastBackupAgeHours is how many hours since
+                            the last backup
+                          format: int32
+                          type: integer
+                        lastBackupTime:
+                          description: LastBackupTime is the timestamp of the last
+                            successful backup
+                          format: date-time
+                          type: string
+                      type: object
                     lastChecked:
                       description: LastChecked is when the cluster was last evaluated
                       format: date-time

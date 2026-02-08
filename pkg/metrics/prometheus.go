@@ -217,6 +217,86 @@ var (
 		},
 		[]string{"type"},
 	)
+
+	// BackupLastSuccessTimestamp tracks the last successful backup timestamp
+	BackupLastSuccessTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_last_success_timestamp",
+			Help:      "Unix timestamp of the last successful backup",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupLastSuccessAgeHours tracks hours since last successful backup
+	BackupLastSuccessAgeHours = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_last_success_age_hours",
+			Help:      "Hours since the last successful backup",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupFirstRecoverabilityTimestamp tracks the first recoverability point
+	BackupFirstRecoverabilityTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_first_recoverability_timestamp",
+			Help:      "Unix timestamp of the first recoverability point",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupFirstRecoverabilityAgeHours tracks hours since first recoverability point
+	BackupFirstRecoverabilityAgeHours = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_first_recoverability_age_hours",
+			Help:      "Hours since the first recoverability point",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupContinuousArchivingWorking tracks if WAL archiving is working
+	BackupContinuousArchivingWorking = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_continuous_archiving_working",
+			Help:      "Whether continuous WAL archiving is working (1=yes, 0=no)",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupConfigured tracks if backups are configured for a cluster
+	BackupConfigured = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_configured",
+			Help:      "Whether backups are configured for the cluster (1=yes, 0=no)",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupHealthy tracks overall backup health status
+	BackupHealthy = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_healthy",
+			Help:      "Whether backups are healthy (1=yes, 0=no)",
+		},
+		[]string{"cluster", "namespace"},
+	)
+
+	// BackupAlertsTotal tracks backup-related alerts
+	BackupAlertsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_alerts_total",
+			Help:      "Total number of backup-related alerts",
+		},
+		[]string{"cluster", "namespace", "type"},
+	)
 )
 
 func init() {
@@ -241,6 +321,15 @@ func init() {
 		AlertsSentTotal,
 		AlertsSuppressedTotal,
 		MetricsCollectionDuration,
+		// Backup metrics
+		BackupLastSuccessTimestamp,
+		BackupLastSuccessAgeHours,
+		BackupFirstRecoverabilityTimestamp,
+		BackupFirstRecoverabilityAgeHours,
+		BackupContinuousArchivingWorking,
+		BackupConfigured,
+		BackupHealthy,
+		BackupAlertsTotal,
 	)
 }
 
@@ -319,4 +408,60 @@ func DeletePVCMetrics(cluster, namespace, pvc, instance string) {
 func DeleteWALMetrics(cluster, namespace, instance string) {
 	WALDirectoryBytes.DeleteLabelValues(cluster, namespace, instance)
 	WALFilesCount.DeleteLabelValues(cluster, namespace, instance)
+}
+
+// RecordBackupMetrics records backup-related metrics for a cluster
+func RecordBackupMetrics(cluster, namespace string, lastBackupTimestamp, firstRecoverabilityTimestamp *float64, archivingWorking, configured, healthy bool) {
+	// Set boolean metrics
+	archivingValue := 0.0
+	if archivingWorking {
+		archivingValue = 1.0
+	}
+	BackupContinuousArchivingWorking.WithLabelValues(cluster, namespace).Set(archivingValue)
+
+	configuredValue := 0.0
+	if configured {
+		configuredValue = 1.0
+	}
+	BackupConfigured.WithLabelValues(cluster, namespace).Set(configuredValue)
+
+	healthyValue := 0.0
+	if healthy {
+		healthyValue = 1.0
+	}
+	BackupHealthy.WithLabelValues(cluster, namespace).Set(healthyValue)
+
+	// Set timestamp metrics if available
+	if lastBackupTimestamp != nil {
+		BackupLastSuccessTimestamp.WithLabelValues(cluster, namespace).Set(*lastBackupTimestamp)
+	}
+	if firstRecoverabilityTimestamp != nil {
+		BackupFirstRecoverabilityTimestamp.WithLabelValues(cluster, namespace).Set(*firstRecoverabilityTimestamp)
+	}
+}
+
+// RecordBackupAge records the age of the last backup in hours
+func RecordBackupAge(cluster, namespace string, ageHours float64) {
+	BackupLastSuccessAgeHours.WithLabelValues(cluster, namespace).Set(ageHours)
+}
+
+// RecordFirstRecoverabilityAge records the age of the first recoverability point in hours
+func RecordFirstRecoverabilityAge(cluster, namespace string, ageHours float64) {
+	BackupFirstRecoverabilityAgeHours.WithLabelValues(cluster, namespace).Set(ageHours)
+}
+
+// RecordBackupAlert records a backup-related alert
+func RecordBackupAlert(cluster, namespace, alertType string) {
+	BackupAlertsTotal.WithLabelValues(cluster, namespace, alertType).Inc()
+}
+
+// DeleteBackupMetrics deletes backup metrics for a specific cluster
+func DeleteBackupMetrics(cluster, namespace string) {
+	BackupLastSuccessTimestamp.DeleteLabelValues(cluster, namespace)
+	BackupLastSuccessAgeHours.DeleteLabelValues(cluster, namespace)
+	BackupFirstRecoverabilityTimestamp.DeleteLabelValues(cluster, namespace)
+	BackupFirstRecoverabilityAgeHours.DeleteLabelValues(cluster, namespace)
+	BackupContinuousArchivingWorking.DeleteLabelValues(cluster, namespace)
+	BackupConfigured.DeleteLabelValues(cluster, namespace)
+	BackupHealthy.DeleteLabelValues(cluster, namespace)
 }

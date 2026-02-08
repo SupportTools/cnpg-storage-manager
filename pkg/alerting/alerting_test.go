@@ -86,8 +86,8 @@ func TestAlertManager_AlertmanagerPayload(t *testing.T) {
 	var receivedPayload []map[string]interface{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/alerts" {
-			t.Errorf("expected path /api/v1/alerts, got %s", r.URL.Path)
+		if r.URL.Path != "/api/v2/alerts" {
+			t.Errorf("expected path /api/v2/alerts, got %s", r.URL.Path)
 		}
 		if r.Method != "POST" {
 			t.Errorf("expected POST method, got %s", r.Method)

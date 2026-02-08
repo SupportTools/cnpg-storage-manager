@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -480,12 +481,19 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 		log.Error(err, "Failed to update cluster annotations", "cluster", cluster.Name)
 	}
 
+	// Collect and evaluate backup status
+	var backupStatus *cnpgv1alpha1.ClusterBackupStatus
+	if policyObj.Spec.BackupMonitoring.Enabled {
+		backupStatus = r.evaluateBackupStatus(ctx, policyObj, cluster)
+	}
+
 	return &cnpgv1alpha1.ManagedCluster{
 		Name:         cluster.Name,
 		Namespace:    cluster.Namespace,
 		LastChecked:  metav1.Now(),
 		UsagePercent: int32(usagePercent),
 		Status:       status,
+		BackupStatus: backupStatus,
 	}, nil
 }
 
@@ -720,6 +728,164 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 
 	log.Info("Alert sent successfully", "cluster", cluster.Name, "severity", severity)
 	return nil
+}
+
+// evaluateBackupStatus evaluates the backup status of a cluster and sends alerts if needed
+func (r *StoragePolicyReconciler) evaluateBackupStatus(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo) *cnpgv1alpha1.ClusterBackupStatus {
+	log := logf.FromContext(ctx)
+
+	status := &cnpgv1alpha1.ClusterBackupStatus{
+		BackupConfigured:           cluster.Status.BackupConfigured,
+		ContinuousArchivingWorking: cluster.Status.ContinuousArchivingWorking,
+		BackupHealthStatus:         "Healthy",
+	}
+
+	now := time.Now()
+	config := policyObj.Spec.BackupMonitoring
+	healthy := true
+	var alertReasons []string
+
+	// Check if backup is configured
+	if !cluster.Status.BackupConfigured && config.AlertOnNoBackupConfigured {
+		healthy = false
+		status.BackupHealthStatus = "NoBackupConfigured"
+		alertReasons = append(alertReasons, "no backup configured")
+		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "no_backup_configured")
+		log.Info("Cluster has no backup configured", "cluster", cluster.Name, "namespace", cluster.Namespace)
+	}
+
+	// Check last successful backup
+	if cluster.Status.LastSuccessfulBackup != nil {
+		t := metav1.NewTime(*cluster.Status.LastSuccessfulBackup)
+		status.LastBackupTime = &t
+		backupAge := now.Sub(*cluster.Status.LastSuccessfulBackup)
+		status.LastBackupAgeHours = int32(backupAge.Hours())
+
+		// Record metrics
+		ts := float64(cluster.Status.LastSuccessfulBackup.Unix())
+		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, &ts, nil, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+		metrics.RecordBackupAge(cluster.Name, cluster.Namespace, backupAge.Hours())
+
+		// Check if backup is too old
+		if config.MaxBackupAgeHours > 0 && status.LastBackupAgeHours > config.MaxBackupAgeHours {
+			healthy = false
+			status.BackupHealthStatus = "BackupTooOld"
+			alertReasons = append(alertReasons, fmt.Sprintf("last backup is %d hours old (max: %d)", status.LastBackupAgeHours, config.MaxBackupAgeHours))
+			metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "backup_too_old")
+			log.Info("Cluster backup is too old", "cluster", cluster.Name, "namespace", cluster.Namespace, "ageHours", status.LastBackupAgeHours, "maxHours", config.MaxBackupAgeHours)
+		}
+	} else if cluster.Status.BackupConfigured {
+		// Backup is configured but no successful backup recorded
+		healthy = false
+		status.BackupHealthStatus = "NoSuccessfulBackup"
+		alertReasons = append(alertReasons, "no successful backup recorded")
+		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "no_successful_backup")
+		log.Info("Cluster has no successful backup", "cluster", cluster.Name, "namespace", cluster.Namespace)
+	}
+
+	// Check first recoverability point
+	if cluster.Status.FirstRecoverabilityPoint != nil {
+		t := metav1.NewTime(*cluster.Status.FirstRecoverabilityPoint)
+		status.FirstRecoverabilityPoint = &t
+		recoverabilityAge := now.Sub(*cluster.Status.FirstRecoverabilityPoint)
+
+		// Record metrics
+		ts := float64(cluster.Status.FirstRecoverabilityPoint.Unix())
+		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, &ts, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+		metrics.RecordFirstRecoverabilityAge(cluster.Name, cluster.Namespace, recoverabilityAge.Hours())
+
+		// Check if first recoverability point is too old
+		if config.MaxRecoveryPointAgeHours > 0 && int32(recoverabilityAge.Hours()) > config.MaxRecoveryPointAgeHours {
+			healthy = false
+			if status.BackupHealthStatus == "Healthy" {
+				status.BackupHealthStatus = "RecoveryPointTooOld"
+			}
+			alertReasons = append(alertReasons, fmt.Sprintf("first recovery point is %d hours old (max: %d)", int32(recoverabilityAge.Hours()), config.MaxRecoveryPointAgeHours))
+			metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "recovery_point_too_old")
+			log.Info("Cluster recovery point is too old", "cluster", cluster.Name, "namespace", cluster.Namespace, "ageHours", int32(recoverabilityAge.Hours()), "maxHours", config.MaxRecoveryPointAgeHours)
+		}
+	}
+
+	// Check continuous archiving status
+	if config.RequireContinuousArchiving && cluster.Status.BackupConfigured && !cluster.Status.ContinuousArchivingWorking {
+		healthy = false
+		if status.BackupHealthStatus == "Healthy" {
+			status.BackupHealthStatus = "ArchivingNotWorking"
+		}
+		alertReasons = append(alertReasons, "continuous WAL archiving is not working")
+		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "archiving_not_working")
+		log.Info("Cluster WAL archiving is not working", "cluster", cluster.Name, "namespace", cluster.Namespace)
+	}
+
+	// Update healthy status
+	if healthy {
+		status.BackupHealthStatus = "Healthy"
+	}
+
+	// Record overall backup health metric
+	metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, nil, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+
+	// Send alerts for backup issues
+	if len(alertReasons) > 0 {
+		r.sendBackupAlert(ctx, policyObj, cluster, alertReasons)
+	}
+
+	return status
+}
+
+// sendBackupAlert sends an alert for backup issues
+func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo, reasons []string) {
+	log := logf.FromContext(ctx)
+
+	// Skip if no alert channels are configured
+	if len(policyObj.Spec.Alerting.Channels) == 0 {
+		log.V(1).Info("No alert channels configured, skipping backup alert", "cluster", cluster.Name)
+		return
+	}
+
+	// Get the alert manager for this policy
+	am := r.getAlertManager(policyObj)
+
+	// Build alert message
+	message := fmt.Sprintf("Backup issues for cluster %s/%s: %s", cluster.Namespace, cluster.Name, reasons[0])
+	if len(reasons) > 1 {
+		message = fmt.Sprintf("Multiple backup issues for cluster %s/%s: %v", cluster.Namespace, cluster.Name, reasons)
+	}
+
+	// Determine severity based on issues
+	severity := alerting.AlertSeverityWarning
+	for _, reason := range reasons {
+		if reason == "no backup configured" || reason == "no successful backup recorded" || strings.Contains(reason, "archiving is not working") {
+			severity = alerting.AlertSeverityCritical
+			break
+		}
+	}
+
+	alert := &alerting.Alert{
+		ClusterName:      cluster.Name,
+		ClusterNamespace: cluster.Namespace,
+		Severity:         severity,
+		Message:          message,
+		Details: map[string]string{
+			"alert_type":  "backup",
+			"policy":      policyObj.Name,
+			"issue_count": fmt.Sprintf("%d", len(reasons)),
+		},
+		Timestamp: time.Now(),
+	}
+
+	// Add each reason as a detail
+	for i, reason := range reasons {
+		alert.Details[fmt.Sprintf("issue_%d", i+1)] = reason
+	}
+
+	// Send alert
+	if err := am.SendAlert(ctx, alert); err != nil {
+		log.Error(err, "Failed to send backup alert", "cluster", cluster.Name, "severity", severity)
+		return
+	}
+
+	log.Info("Backup alert sent successfully", "cluster", cluster.Name, "severity", severity, "issues", len(reasons))
 }
 
 // createStorageEvent creates a StorageEvent for audit purposes

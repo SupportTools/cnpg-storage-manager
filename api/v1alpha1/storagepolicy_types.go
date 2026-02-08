@@ -204,6 +204,38 @@ type AlertingConfig struct {
 	EscalationMinutes int32 `json:"escalationMinutes,omitempty"`
 }
 
+// BackupMonitoringConfig defines backup and WAL archiving monitoring settings
+type BackupMonitoringConfig struct {
+	// Enabled determines if backup monitoring is enabled
+	// +kubebuilder:default=true
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// MaxBackupAgeHours is the maximum age of the last successful backup before alerting
+	// Set to 0 to disable backup age monitoring
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=24
+	// +optional
+	MaxBackupAgeHours int32 `json:"maxBackupAgeHours,omitempty"`
+
+	// RequireContinuousArchiving alerts if WAL archiving is not working
+	// +kubebuilder:default=true
+	// +optional
+	RequireContinuousArchiving bool `json:"requireContinuousArchiving,omitempty"`
+
+	// MaxRecoveryPointAgeHours is the maximum age of the first recovery point before alerting
+	// Set to 0 to disable recovery point age monitoring
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=168
+	// +optional
+	MaxRecoveryPointAgeHours int32 `json:"maxRecoveryPointAgeHours,omitempty"`
+
+	// AlertOnNoBackupConfigured alerts if a cluster has no backup configured
+	// +kubebuilder:default=true
+	// +optional
+	AlertOnNoBackupConfigured bool `json:"alertOnNoBackupConfigured,omitempty"`
+}
+
 // StoragePolicySpec defines the desired state of StoragePolicy
 type StoragePolicySpec struct {
 	// Selector is a label selector for matching CNPG clusters
@@ -225,6 +257,10 @@ type StoragePolicySpec struct {
 	// WALCleanup defines WAL file cleanup settings
 	// +optional
 	WALCleanup WALCleanupConfig `json:"walCleanup,omitempty"`
+
+	// BackupMonitoring defines backup and WAL archiving monitoring settings
+	// +optional
+	BackupMonitoring BackupMonitoringConfig `json:"backupMonitoring,omitempty"`
 
 	// CircuitBreaker defines circuit breaker settings
 	// +optional
@@ -256,6 +292,37 @@ type ManagedCluster struct {
 
 	// Status is the current status of the cluster
 	Status string `json:"status"`
+
+	// BackupStatus contains backup-related status information
+	// +optional
+	BackupStatus *ClusterBackupStatus `json:"backupStatus,omitempty"`
+}
+
+// ClusterBackupStatus contains backup and WAL archiving status for a cluster
+type ClusterBackupStatus struct {
+	// LastBackupTime is the timestamp of the last successful backup
+	// +optional
+	LastBackupTime *metav1.Time `json:"lastBackupTime,omitempty"`
+
+	// LastBackupAgeHours is how many hours since the last backup
+	// +optional
+	LastBackupAgeHours int32 `json:"lastBackupAgeHours,omitempty"`
+
+	// FirstRecoverabilityPoint is the timestamp of the oldest recoverable point
+	// +optional
+	FirstRecoverabilityPoint *metav1.Time `json:"firstRecoverabilityPoint,omitempty"`
+
+	// ContinuousArchivingWorking indicates if WAL archiving is functioning
+	// +optional
+	ContinuousArchivingWorking bool `json:"continuousArchivingWorking,omitempty"`
+
+	// BackupConfigured indicates if backups are configured for the cluster
+	// +optional
+	BackupConfigured bool `json:"backupConfigured,omitempty"`
+
+	// BackupStatus is the overall backup health status
+	// +optional
+	BackupHealthStatus string `json:"backupHealthStatus,omitempty"`
 }
 
 // StoragePolicyStatus defines the observed state of StoragePolicy

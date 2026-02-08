@@ -19,6 +19,7 @@ package cnpg
 import (
 	"context"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -68,6 +69,11 @@ type ClusterStatus struct {
 	ReadyInstances     int32
 	CurrentPrimary     string
 	CurrentPrimaryNode string
+	// Backup status fields
+	FirstRecoverabilityPoint   *time.Time
+	LastSuccessfulBackup       *time.Time
+	ContinuousArchivingWorking bool
+	BackupConfigured           bool
 }
 
 // Discovery provides methods for discovering CNPG clusters
@@ -191,6 +197,38 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 	}
 
 	info.Status.Ready = info.Status.Phase == "Cluster in healthy state" || info.Status.ReadyInstances >= info.Instances
+
+	// Extract backup status fields
+	if firstRecoverability, found, _ := unstructured.NestedString(cluster.Object, "status", "firstRecoverabilityPoint"); found && firstRecoverability != "" {
+		if t, err := time.Parse(time.RFC3339, firstRecoverability); err == nil {
+			info.Status.FirstRecoverabilityPoint = &t
+		}
+	}
+	if lastBackup, found, _ := unstructured.NestedString(cluster.Object, "status", "lastSuccessfulBackup"); found && lastBackup != "" {
+		if t, err := time.Parse(time.RFC3339, lastBackup); err == nil {
+			info.Status.LastSuccessfulBackup = &t
+		}
+	}
+
+	// Check for ContinuousArchiving condition
+	if conditions, found, _ := unstructured.NestedSlice(cluster.Object, "status", "conditions"); found {
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if condType, _ := condMap["type"].(string); condType == "ContinuousArchiving" {
+				if status, _ := condMap["status"].(string); status == "True" {
+					info.Status.ContinuousArchivingWorking = true
+				}
+			}
+		}
+	}
+
+	// Check if backup is configured (presence of backup section in spec)
+	if _, found, _ := unstructured.NestedMap(cluster.Object, "spec", "backup"); found {
+		info.Status.BackupConfigured = true
+	}
 
 	return info, nil
 }
