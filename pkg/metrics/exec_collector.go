@@ -55,12 +55,12 @@ func NewExecCollector(restConfig *rest.Config) (*ExecCollector, error) {
 
 // DfOutput represents parsed output from the df command
 type DfOutput struct {
-	Filesystem   string
-	TotalBytes   int64
-	UsedBytes    int64
-	AvailBytes   int64
-	UsePercent   float64
-	MountPoint   string
+	Filesystem string
+	TotalBytes int64
+	UsedBytes  int64
+	AvailBytes int64
+	UsePercent float64
+	MountPoint string
 }
 
 // CollectPVCMetricsViaExec collects metrics for PVCs by executing df inside the pods
@@ -112,9 +112,9 @@ func (e *ExecCollector) CollectPVCMetricsViaExec(ctx context.Context, pods []cor
 			// Get inode stats if possible
 			inodeStats, err := e.execDfInodesInPod(ctx, pod, mountPath)
 			if err == nil && inodeStats != nil {
-				metric.Inodes = inodeStats.TotalBytes      // Total inodes
-				metric.InodesUsed = inodeStats.UsedBytes   // Used inodes
-				metric.InodesFree = inodeStats.AvailBytes  // Free inodes
+				metric.Inodes = inodeStats.TotalBytes     // Total inodes
+				metric.InodesUsed = inodeStats.UsedBytes  // Used inodes
+				metric.InodesFree = inodeStats.AvailBytes // Free inodes
 			}
 
 			logger.V(1).Info("Collected PVC metrics via exec",
@@ -188,7 +188,13 @@ func (e *ExecCollector) execDfInodesInPod(ctx context.Context, pod corev1.Pod, m
 }
 
 // execInPod executes a command inside a pod and returns stdout/stderr
-func (e *ExecCollector) execInPod(ctx context.Context, pod corev1.Pod, command []string) (string, string, error) {
+//
+//nolint:unparam // stderr return kept for debugging purposes
+func (e *ExecCollector) execInPod(
+	ctx context.Context,
+	pod corev1.Pod,
+	command []string,
+) (string, string, error) {
 	// Find the first container (typically the postgres container for CNPG)
 	containerName := ""
 	for _, container := range pod.Spec.Containers {
@@ -235,8 +241,8 @@ func (e *ExecCollector) execInPod(ctx context.Context, pod corev1.Pod, command [
 
 // parseDfOutput parses the output of df -B1 -P
 func (e *ExecCollector) parseDfOutput(output string) []DfOutput {
-	var results []DfOutput
 	lines := strings.Split(output, "\n")
+	results := make([]DfOutput, 0, len(lines))
 
 	for i, line := range lines {
 		// Skip header line

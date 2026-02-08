@@ -275,6 +275,8 @@ func (e *WALCleanupEngine) listWALFiles(ctx context.Context, pod *corev1.Pod, wa
 }
 
 // getArchivedWALStatus gets the list of archived WAL files
+//
+//nolint:unparam // error return kept for future extensibility
 func (e *WALCleanupEngine) getArchivedWALStatus(ctx context.Context, pod *corev1.Pod) ([]string, error) {
 	// Query PostgreSQL for the last archived WAL segment
 	cmd := "psql -At -c \"SELECT file_name FROM pg_ls_archive_statusdir() WHERE name LIKE '%.done' ORDER BY name;\""
@@ -304,7 +306,12 @@ func (e *WALCleanupEngine) removeFile(ctx context.Context, pod *corev1.Pod, file
 }
 
 // execInPod executes a command in a pod container
-func (e *WALCleanupEngine) execInPod(ctx context.Context, pod *corev1.Pod, container string, command []string) (string, error) {
+func (e *WALCleanupEngine) execInPod(
+	ctx context.Context,
+	pod *corev1.Pod,
+	container string,
+	command []string,
+) (string, error) {
 	req := e.clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(pod.Name).
@@ -336,7 +343,11 @@ func (e *WALCleanupEngine) execInPod(ctx context.Context, pod *corev1.Pod, conta
 }
 
 // CreateWALCleanupEvent creates a StorageEvent for a WAL cleanup operation
-func (e *WALCleanupEngine) CreateWALCleanupEvent(ctx context.Context, req *WALCleanupRequest, result *WALCleanupResult) (*cnpgv1alpha1.StorageEvent, error) {
+func (e *WALCleanupEngine) CreateWALCleanupEvent(
+	ctx context.Context,
+	req *WALCleanupRequest,
+	result *WALCleanupResult,
+) (*cnpgv1alpha1.StorageEvent, error) {
 	event := &cnpgv1alpha1.StorageEvent{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: fmt.Sprintf("%s-wal-cleanup-", req.ClusterName),
@@ -373,7 +384,11 @@ func (e *WALCleanupEngine) CreateWALCleanupEvent(ctx context.Context, req *WALCl
 }
 
 // UpdateWALCleanupEventStatus updates the status of a WAL cleanup event
-func (e *WALCleanupEngine) UpdateWALCleanupEventStatus(ctx context.Context, event *cnpgv1alpha1.StorageEvent, result *WALCleanupResult) error {
+func (e *WALCleanupEngine) UpdateWALCleanupEventStatus(
+	ctx context.Context,
+	event *cnpgv1alpha1.StorageEvent,
+	result *WALCleanupResult,
+) error {
 	now := metav1.Now()
 	if event.Status.StartTime == nil {
 		event.Status.StartTime = &now

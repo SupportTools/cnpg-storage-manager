@@ -165,7 +165,7 @@ func (r *StoragePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	metrics.ClustersManagedTotal.WithLabelValues(policyObj.Namespace).Set(float64(len(clusters)))
 
 	// Process each cluster
-	var managedClusters []cnpgv1alpha1.ManagedCluster
+	managedClusters := make([]cnpgv1alpha1.ManagedCluster, 0, len(clusters))
 	var reconciledCount, errorCount int
 
 	for _, cluster := range clusters {
@@ -265,6 +265,8 @@ func (r *StoragePolicyReconciler) getAlertManager(policyObj *cnpgv1alpha1.Storag
 }
 
 // handleDeletion handles the deletion of a StoragePolicy
+//
+//nolint:unparam // ctrl.Result always nil but kept for consistency with Reconcile signature
 func (r *StoragePolicyReconciler) handleDeletion(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Handling StoragePolicy deletion")
@@ -288,6 +290,8 @@ func (r *StoragePolicyReconciler) handleDeletion(ctx context.Context, policyObj 
 }
 
 // cleanupManagedClusters removes annotations from all managed clusters
+//
+//nolint:unparam // error return kept for future extensibility
 func (r *StoragePolicyReconciler) cleanupManagedClusters(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy) error {
 	log := logf.FromContext(ctx)
 
@@ -423,6 +427,7 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 	}
 
 	// Process recommended actions
+	//nolint:goconst // "Healthy" is a descriptive status string, not a constant
 	status := "Healthy"
 	if evalResult.HasPendingActions() {
 		action := evalResult.GetHighestPriorityAction()
@@ -888,36 +893,9 @@ func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj
 	log.Info("Backup alert sent successfully", "cluster", cluster.Name, "severity", severity, "issues", len(reasons))
 }
 
-// createStorageEvent creates a StorageEvent for audit purposes
-func (r *StoragePolicyReconciler) createStorageEvent(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo, eventType cnpgv1alpha1.EventType, reason string) error {
-	event := &cnpgv1alpha1.StorageEvent{
-		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: fmt.Sprintf("%s-%s-", cluster.Name, eventType),
-			Namespace:    cluster.Namespace,
-			Labels: map[string]string{
-				"cnpg.supporttools.io/cluster": cluster.Name,
-				"cnpg.supporttools.io/policy":  policyObj.Name,
-			},
-		},
-		Spec: cnpgv1alpha1.StorageEventSpec{
-			ClusterRef: cnpgv1alpha1.ClusterReference{
-				Name:      cluster.Name,
-				Namespace: cluster.Namespace,
-			},
-			PolicyRef: cnpgv1alpha1.PolicyReference{
-				Name:      policyObj.Name,
-				Namespace: policyObj.Namespace,
-			},
-			EventType: eventType,
-			Trigger:   cnpgv1alpha1.TriggerTypeAutomatic,
-			Reason:    reason,
-		},
-	}
-
-	return r.Create(ctx, event)
-}
-
 // setCondition sets a condition on the StoragePolicy status
+//
+//nolint:unparam // conditionType parameter kept for potential future use with multiple condition types
 func (r *StoragePolicyReconciler) setCondition(policyObj *cnpgv1alpha1.StoragePolicy, conditionType string, status metav1.ConditionStatus, reason, message string) {
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -949,6 +927,7 @@ func (c *clusterAnnotationsWrapper) GetAnnotations() map[string]string {
 }
 
 func (c *clusterAnnotationsWrapper) IsManaged() bool {
+	//nolint:goconst // "true" comparison with annotation value
 	return c.annotations[annotations.AnnotationManaged] == "true"
 }
 

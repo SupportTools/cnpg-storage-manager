@@ -134,7 +134,11 @@ func (d *Discovery) GetCluster(ctx context.Context, name, namespace string) (*Cl
 }
 
 // GetClusterBySelector gets clusters matching a label selector
-func (d *Discovery) GetClustersBySelector(ctx context.Context, namespace string, selector *metav1.LabelSelector) ([]ClusterInfo, error) {
+func (d *Discovery) GetClustersBySelector(
+	ctx context.Context,
+	namespace string,
+	selector *metav1.LabelSelector,
+) ([]ClusterInfo, error) {
 	allClusters, err := d.ListClusters(ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -160,6 +164,8 @@ func (d *Discovery) GetClustersBySelector(ctx context.Context, namespace string,
 }
 
 // extractClusterInfo extracts cluster information from an unstructured object
+//
+//nolint:unparam // error return kept for future extensibility
 func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (ClusterInfo, error) {
 	info := ClusterInfo{
 		Name:      cluster.GetName(),
@@ -199,12 +205,18 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 	info.Status.Ready = info.Status.Phase == "Cluster in healthy state" || info.Status.ReadyInstances >= info.Instances
 
 	// Extract backup status fields
-	if firstRecoverability, found, _ := unstructured.NestedString(cluster.Object, "status", "firstRecoverabilityPoint"); found && firstRecoverability != "" {
+	firstRecoverability, found, _ := unstructured.NestedString(
+		cluster.Object, "status", "firstRecoverabilityPoint",
+	)
+	if found && firstRecoverability != "" {
 		if t, err := time.Parse(time.RFC3339, firstRecoverability); err == nil {
 			info.Status.FirstRecoverabilityPoint = &t
 		}
 	}
-	if lastBackup, found, _ := unstructured.NestedString(cluster.Object, "status", "lastSuccessfulBackup"); found && lastBackup != "" {
+	lastBackup, found, _ := unstructured.NestedString(
+		cluster.Object, "status", "lastSuccessfulBackup",
+	)
+	if found && lastBackup != "" {
 		if t, err := time.Parse(time.RFC3339, lastBackup); err == nil {
 			info.Status.LastSuccessfulBackup = &t
 		}
@@ -234,7 +246,10 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 }
 
 // GetClusterPVCs gets the PVCs associated with a CNPG cluster
-func (d *Discovery) GetClusterPVCs(ctx context.Context, clusterName, namespace string) ([]corev1.PersistentVolumeClaim, error) {
+func (d *Discovery) GetClusterPVCs(
+	ctx context.Context,
+	clusterName, namespace string,
+) ([]corev1.PersistentVolumeClaim, error) {
 	pvcList := &corev1.PersistentVolumeClaimList{}
 
 	// CNPG labels PVCs with the cluster name
@@ -288,7 +303,11 @@ func (d *Discovery) GetPrimaryPod(ctx context.Context, clusterName, namespace st
 }
 
 // UpdateClusterAnnotations updates the annotations on a CNPG cluster
-func (d *Discovery) UpdateClusterAnnotations(ctx context.Context, name, namespace string, annotations map[string]string) error {
+func (d *Discovery) UpdateClusterAnnotations(
+	ctx context.Context,
+	name, namespace string,
+	annotations map[string]string,
+) error {
 	cluster := &unstructured.Unstructured{}
 	cluster.SetGroupVersionKind(CNPGClusterGVK)
 

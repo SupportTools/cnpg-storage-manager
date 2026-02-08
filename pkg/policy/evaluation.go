@@ -113,20 +113,36 @@ func (e *Evaluator) EvaluateThresholds(usagePercent float64, thresholds cnpgv1al
 		result.ShouldAlert = true
 		result.ShouldExpand = true
 		result.ShouldCleanupWAL = true
-		result.Message = fmt.Sprintf("Emergency: storage usage %.1f%% exceeds emergency threshold %d%%", usagePercent, emergencyThreshold)
+		result.Message = fmt.Sprintf(
+			"Emergency: storage usage %.1f%% exceeds emergency threshold %d%%",
+			usagePercent,
+			emergencyThreshold,
+		)
 	} else if usagePercent >= float64(expansionThreshold) {
 		result.Level = ThresholdLevelExpansion
 		result.ShouldAlert = true
 		result.ShouldExpand = true
-		result.Message = fmt.Sprintf("Expansion required: storage usage %.1f%% exceeds expansion threshold %d%%", usagePercent, expansionThreshold)
+		result.Message = fmt.Sprintf(
+			"Expansion required: storage usage %.1f%% exceeds expansion threshold %d%%",
+			usagePercent,
+			expansionThreshold,
+		)
 	} else if usagePercent >= float64(criticalThreshold) {
 		result.Level = ThresholdLevelCritical
 		result.ShouldAlert = true
-		result.Message = fmt.Sprintf("Critical: storage usage %.1f%% exceeds critical threshold %d%%", usagePercent, criticalThreshold)
+		result.Message = fmt.Sprintf(
+			"Critical: storage usage %.1f%% exceeds critical threshold %d%%",
+			usagePercent,
+			criticalThreshold,
+		)
 	} else if usagePercent >= float64(warningThreshold) {
 		result.Level = ThresholdLevelWarning
 		result.ShouldAlert = true
-		result.Message = fmt.Sprintf("Warning: storage usage %.1f%% exceeds warning threshold %d%%", usagePercent, warningThreshold)
+		result.Message = fmt.Sprintf(
+			"Warning: storage usage %.1f%% exceeds warning threshold %d%%",
+			usagePercent,
+			warningThreshold,
+		)
 	} else {
 		result.Message = fmt.Sprintf("Normal: storage usage %.1f%% is within acceptable limits", usagePercent)
 	}
@@ -135,7 +151,10 @@ func (e *Evaluator) EvaluateThresholds(usagePercent float64, thresholds cnpgv1al
 }
 
 // GetRecommendedActions returns a list of recommended actions based on evaluation
-func (e *Evaluator) GetRecommendedActions(result ThresholdResult, policy *cnpgv1alpha1.StoragePolicy) []ActionRecommendation {
+func (e *Evaluator) GetRecommendedActions(
+	result ThresholdResult,
+	policy *cnpgv1alpha1.StoragePolicy,
+) []ActionRecommendation {
 	var actions []ActionRecommendation
 
 	switch result.Level {
@@ -291,7 +310,10 @@ type EvaluationContext struct {
 }
 
 // FullEvaluation performs a complete evaluation with all checks
-func (e *Evaluator) FullEvaluation(ctx EvaluationContext, policy *cnpgv1alpha1.StoragePolicy) (*EvaluationResult, error) {
+func (e *Evaluator) FullEvaluation(
+	ctx EvaluationContext,
+	policy *cnpgv1alpha1.StoragePolicy,
+) (*EvaluationResult, error) {
 	result := &EvaluationResult{
 		ClusterName:   ctx.ClusterName,
 		Namespace:     ctx.Namespace,

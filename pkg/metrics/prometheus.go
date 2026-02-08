@@ -411,7 +411,11 @@ func DeleteWALMetrics(cluster, namespace, instance string) {
 }
 
 // RecordBackupMetrics records backup-related metrics for a cluster
-func RecordBackupMetrics(cluster, namespace string, lastBackupTimestamp, firstRecoverabilityTimestamp *float64, archivingWorking, configured, healthy bool) {
+func RecordBackupMetrics(
+	cluster, namespace string,
+	lastBackupTimestamp, firstRecoverabilityTimestamp *float64,
+	archivingWorking, configured, healthy bool,
+) {
 	// Set boolean metrics
 	archivingValue := 0.0
 	if archivingWorking {

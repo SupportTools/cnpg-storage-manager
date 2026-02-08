@@ -151,7 +151,13 @@ func (e *ExpansionEngine) ExpandClusterPVCs(ctx context.Context, req *ExpansionR
 }
 
 // expandSinglePVC expands a single PVC
-func (e *ExpansionEngine) expandSinglePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim, percentage int32, minIncrement, maxSize int64, dryRun bool) PVCExpansionResult {
+func (e *ExpansionEngine) expandSinglePVC(
+	ctx context.Context,
+	pvc *corev1.PersistentVolumeClaim,
+	percentage int32,
+	minIncrement, maxSize int64,
+	dryRun bool,
+) PVCExpansionResult {
 	logger := log.FromContext(ctx)
 
 	result := PVCExpansionResult{
@@ -244,7 +250,13 @@ func (e *ExpansionEngine) expandSinglePVC(ctx context.Context, pvc *corev1.Persi
 }
 
 // VerifyExpansion verifies that a PVC expansion completed successfully
-func (e *ExpansionEngine) VerifyExpansion(ctx context.Context, pvc *corev1.PersistentVolumeClaim, expectedSize resource.Quantity, timeout time.Duration) (*VerificationResult, error) {
+func (e *ExpansionEngine) VerifyExpansion(
+	ctx context.Context,
+	pvc *corev1.PersistentVolumeClaim,
+	expectedSize resource.Quantity,
+	timeout time.Duration) (*VerificationResult,
+	error,
+) {
 	logger := log.FromContext(ctx)
 
 	result := &VerificationResult{
@@ -384,8 +396,12 @@ func formatBytes(bytes int64) string {
 }
 
 // CreateExpansionEvent creates a StorageEvent for an expansion operation
-func (e *ExpansionEngine) CreateExpansionEvent(ctx context.Context, req *ExpansionRequest, result *ExpansionResult) (*cnpgv1alpha1.StorageEvent, error) {
-	// Build affected PVCs list
+func (e *ExpansionEngine) CreateExpansionEvent(
+	ctx context.Context,
+	req *ExpansionRequest,
+	result *ExpansionResult) (*cnpgv1alpha1.StorageEvent,
+	error,
+) { // Build affected PVCs list
 	affectedPVCs := make([]cnpgv1alpha1.AffectedPVC, 0, len(result.PVCResults))
 	for _, pvcResult := range result.PVCResults {
 		if !pvcResult.Skipped {
@@ -443,8 +459,11 @@ func (e *ExpansionEngine) CreateExpansionEvent(ctx context.Context, req *Expansi
 }
 
 // UpdateExpansionEventStatus updates the status of an expansion event
-func (e *ExpansionEngine) UpdateExpansionEventStatus(ctx context.Context, event *cnpgv1alpha1.StorageEvent, result *ExpansionResult) error {
-	// Build PVC statuses
+func (e *ExpansionEngine) UpdateExpansionEventStatus(
+	ctx context.Context,
+	event *cnpgv1alpha1.StorageEvent,
+	result *ExpansionResult,
+) error { // Build PVC statuses
 	pvcStatuses := make([]cnpgv1alpha1.PVCStatus, 0, len(result.PVCResults))
 	for _, pvcResult := range result.PVCResults {
 		if pvcResult.Skipped {

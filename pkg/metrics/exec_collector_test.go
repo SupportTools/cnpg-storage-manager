@@ -385,10 +385,10 @@ func TestFindMountPointStats(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		mountPath  string
-		expected   *DfOutput
-		expectNil  bool
+		name      string
+		mountPath string
+		expected  *DfOutput
+		expectNil bool
 	}{
 		{
 			name:      "exact match",

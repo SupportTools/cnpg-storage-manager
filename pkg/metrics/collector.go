@@ -223,7 +223,7 @@ func (c *Collector) fetchKubeletStats(ctx context.Context, nodeName string) (*Ku
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch kubelet stats: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -321,7 +321,11 @@ func (c *Collector) extractPVCMetrics(stats *KubeletStatsSummary, pods []corev1.
 }
 
 // CollectClusterMetrics collects all PVC metrics for a CNPG cluster
-func (c *Collector) CollectClusterMetrics(ctx context.Context, clusterName, namespace string, pods []corev1.Pod) (*ClusterMetrics, error) {
+func (c *Collector) CollectClusterMetrics(
+	ctx context.Context,
+	clusterName, namespace string,
+	pods []corev1.Pod,
+) (*ClusterMetrics, error) {
 	logger := log.FromContext(ctx)
 	start := time.Now()
 

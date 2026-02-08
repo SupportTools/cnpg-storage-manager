@@ -145,8 +145,10 @@ func (m *AlertManager) sendToAlertmanager(ctx context.Context, alert *Alert, cha
 	}
 
 	// Add custom details to labels
-	for k, v := range alert.Details {
-		alertPayload[0]["labels"].(map[string]string)[k] = v
+	if labels, ok := alertPayload[0]["labels"].(map[string]string); ok {
+		for k, v := range alert.Details {
+			labels[k] = v
+		}
 	}
 
 	body, err := json.Marshal(alertPayload)
@@ -170,7 +172,7 @@ func (m *AlertManager) sendToAlertmanager(ctx context.Context, alert *Alert, cha
 	if err != nil {
 		return fmt.Errorf("failed to send alertmanager request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("alertmanager returned status %d", resp.StatusCode)
@@ -226,7 +228,7 @@ func (m *AlertManager) sendToSlack(ctx context.Context, alert *Alert, channel cn
 	if err != nil {
 		return fmt.Errorf("failed to send slack request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("slack returned status %d", resp.StatusCode)
@@ -289,7 +291,7 @@ func (m *AlertManager) sendToPagerDuty(ctx context.Context, alert *Alert, channe
 	if err != nil {
 		return fmt.Errorf("failed to send pagerduty request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("pagerduty returned status %d", resp.StatusCode)

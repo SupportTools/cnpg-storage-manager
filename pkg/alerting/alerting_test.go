@@ -32,6 +32,12 @@ import (
 	cnpgv1alpha1 "github.com/supporttools/cnpg-storage-manager/api/v1alpha1"
 )
 
+const (
+	testAlertName     = "CNPGStorageAlert"
+	testClusterName   = "test-cluster"
+	testNamespaceName = "test-namespace"
+)
+
 func TestAlertManager_Suppression(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
@@ -40,7 +46,7 @@ func TestAlertManager_Suppression(t *testing.T) {
 	manager := NewAlertManager(client, nil)
 
 	alert := &Alert{
-		ClusterName:      "test-cluster",
+		ClusterName:      testClusterName,
 		ClusterNamespace: "default",
 		Severity:         AlertSeverityWarning,
 		Message:          "Test alert",
@@ -62,7 +68,7 @@ func TestAlertManager_Suppression(t *testing.T) {
 
 	// Different severity should not be suppressed
 	alert2 := &Alert{
-		ClusterName:      "test-cluster",
+		ClusterName:      testClusterName,
 		ClusterNamespace: "default",
 		Severity:         AlertSeverityCritical,
 		Message:          "Test alert",
@@ -73,7 +79,7 @@ func TestAlertManager_Suppression(t *testing.T) {
 	}
 
 	// Clear suppression
-	manager.ClearSuppression("default", "test-cluster")
+	manager.ClearSuppression("default", testClusterName)
 	if manager.isSuppressed(alert) {
 		t.Error("expected alert to not be suppressed after clearing")
 	}
@@ -112,7 +118,7 @@ func TestAlertManager_AlertmanagerPayload(t *testing.T) {
 	manager := NewAlertManager(client, channels)
 
 	alert := &Alert{
-		ClusterName:      "test-cluster",
+		ClusterName:      testClusterName,
 		ClusterNamespace: "default",
 		Severity:         AlertSeverityCritical,
 		Message:          "Storage usage critical",
@@ -132,11 +138,11 @@ func TestAlertManager_AlertmanagerPayload(t *testing.T) {
 	}
 
 	labels := receivedPayload[0]["labels"].(map[string]interface{})
-	if labels["alertname"] != "CNPGStorageAlert" {
-		t.Errorf("expected alertname CNPGStorageAlert, got %v", labels["alertname"])
+	if labels["alertname"] != testAlertName {
+		t.Errorf("expected alertname %s, got %v", testAlertName, labels["alertname"])
 	}
-	if labels["cluster"] != "test-cluster" {
-		t.Errorf("expected cluster test-cluster, got %v", labels["cluster"])
+	if labels["cluster"] != testClusterName {
+		t.Errorf("expected cluster %s, got %v", testClusterName, labels["cluster"])
 	}
 	if labels["severity"] != "critical" {
 		t.Errorf("expected severity critical, got %v", labels["severity"])
@@ -180,7 +186,7 @@ func TestAlertManager_SlackPayload(t *testing.T) {
 	manager := NewAlertManager(client, channels)
 
 	alert := &Alert{
-		ClusterName:      "test-cluster",
+		ClusterName:      testClusterName,
 		ClusterNamespace: "default",
 		Severity:         AlertSeverityWarning,
 		Message:          "Storage usage warning",
@@ -252,8 +258,8 @@ func TestAlertManager_PagerDutySecretRetrieval(t *testing.T) {
 
 func TestBuildSlackFields(t *testing.T) {
 	alert := &Alert{
-		ClusterName:      "test-cluster",
-		ClusterNamespace: "default",
+		ClusterName:      testClusterName,
+		ClusterNamespace: testNamespaceName,
 		Severity:         AlertSeverityCritical,
 		Details: map[string]string{
 			"usage_percent": "95",
@@ -273,8 +279,9 @@ func TestBuildSlackFields(t *testing.T) {
 	for _, f := range fields {
 		if f["title"] == "Cluster" {
 			found = true
-			if f["value"] != "default/test-cluster" {
-				t.Errorf("expected cluster value default/test-cluster, got %v", f["value"])
+			expectedValue := testNamespaceName + "/" + testClusterName
+			if f["value"] != expectedValue {
+				t.Errorf("expected cluster value %s, got %v", expectedValue, f["value"])
 			}
 		}
 	}

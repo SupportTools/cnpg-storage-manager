@@ -59,7 +59,10 @@ type ValidationResult struct {
 }
 
 // ValidateStorageClass validates if a storage class supports volume expansion
-func (v *StorageClassValidator) ValidateStorageClass(ctx context.Context, storageClassName string) (*ValidationResult, error) {
+func (v *StorageClassValidator) ValidateStorageClass(
+	ctx context.Context,
+	storageClassName string,
+) (*ValidationResult, error) {
 	logger := log.FromContext(ctx)
 
 	// Check cache first
@@ -121,7 +124,11 @@ func (v *StorageClassValidator) validationMessage(caps *StorageClassCapabilities
 	if caps.AllowVolumeExpansion {
 		return fmt.Sprintf("storage class %q supports volume expansion (provisioner: %s)", caps.Name, caps.Provisioner)
 	}
-	return fmt.Sprintf("storage class %q does not support volume expansion (allowVolumeExpansion=false, provisioner: %s)", caps.Name, caps.Provisioner)
+	return fmt.Sprintf(
+		"storage class %q does not support volume expansion (allowVolumeExpansion=false, provisioner: %s)",
+		caps.Name,
+		caps.Provisioner,
+	)
 }
 
 // InvalidateCache invalidates the cache for a specific storage class

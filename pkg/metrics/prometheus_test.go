@@ -39,13 +39,17 @@ func TestRecordPVCMetrics(t *testing.T) {
 	}
 
 	// Verify capacity bytes
-	capacityValue := testutil.ToFloat64(PVCCapacityBytes.WithLabelValues("test-cluster", "default", "test-pvc", "test-instance"))
+	capacityValue := testutil.ToFloat64(
+		PVCCapacityBytes.WithLabelValues("test-cluster", "default", "test-pvc", "test-instance"),
+	)
 	if capacityValue != 10737418240 {
 		t.Errorf("expected capacity bytes 10737418240, got %f", capacityValue)
 	}
 
 	// Verify usage percent (should be 50%)
-	percentValue := testutil.ToFloat64(PVCUsagePercent.WithLabelValues("test-cluster", "default", "test-pvc", "test-instance"))
+	percentValue := testutil.ToFloat64(
+		PVCUsagePercent.WithLabelValues("test-cluster", "default", "test-pvc", "test-instance"),
+	)
 	if percentValue != 50.0 {
 		t.Errorf("expected usage percent 50.0, got %f", percentValue)
 	}
@@ -232,7 +236,9 @@ func TestRecordAlertSent(t *testing.T) {
 		t.Errorf("expected 2 slack warnings, got %f", slackWarnings)
 	}
 
-	pagerdutyAlerts := testutil.ToFloat64(AlertsSentTotal.WithLabelValues("test-cluster", "default", "critical", "pagerduty"))
+	pagerdutyAlerts := testutil.ToFloat64(
+		AlertsSentTotal.WithLabelValues("test-cluster", "default", "critical", "pagerduty"),
+	)
 	if pagerdutyAlerts != 1 {
 		t.Errorf("expected 1 pagerduty alert, got %f", pagerdutyAlerts)
 	}

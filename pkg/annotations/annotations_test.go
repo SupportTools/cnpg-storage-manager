@@ -85,6 +85,7 @@ func TestSetManaged(t *testing.T) {
 	ca := &ClusterAnnotations{annotations: map[string]string{}}
 
 	ca.SetManaged(true)
+	//nolint:goconst // "true" is a test assertion value
 	if ca.annotations[AnnotationManaged] != "true" {
 		t.Error("expected managed to be true")
 	}
@@ -204,6 +205,7 @@ func TestLastCheck(t *testing.T) {
 	got := ca.GetLastCheck()
 	if got == nil {
 		t.Error("expected non-nil time")
+		return
 	}
 	// Compare with some tolerance
 	if got.Sub(now) > time.Second {
