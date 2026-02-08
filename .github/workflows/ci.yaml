@@ -30,9 +30,9 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.55.2
+          version: v2.5.0
           args: --timeout=5m
 
   test:
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          make test-integration
+          make test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -169,10 +169,11 @@ jobs:
           args: '-no-fail -fmt sarif -out results.sarif ./...'
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
         if: always()
+        continue-on-error: true  # Don't fail if GitHub Advanced Security is not enabled
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
