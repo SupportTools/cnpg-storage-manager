@@ -81,6 +81,10 @@ type StoragePolicyReconciler struct {
 // +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters/status,verbs=get
 
+// RBAC for ObjectStore access (barman-cloud plugin backup status)
+// +kubebuilder:rbac:groups=barmancloud.cnpg.io,resources=objectstores,verbs=get;list;watch
+// +kubebuilder:rbac:groups=barmancloud.cnpg.io,resources=objectstores/status,verbs=get
+
 // RBAC for PVC management (expansion)
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;patch;update
 
@@ -736,7 +740,11 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 }
 
 // evaluateBackupStatus evaluates the backup status of a cluster and sends alerts if needed
-func (r *StoragePolicyReconciler) evaluateBackupStatus(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo) *cnpgv1alpha1.ClusterBackupStatus {
+func (r *StoragePolicyReconciler) evaluateBackupStatus(
+	ctx context.Context,
+	policyObj *cnpgv1alpha1.StoragePolicy,
+	cluster cnpg.ClusterInfo,
+) *cnpgv1alpha1.ClusterBackupStatus {
 	log := logf.FromContext(ctx)
 
 	status := &cnpgv1alpha1.ClusterBackupStatus{
@@ -756,28 +764,63 @@ func (r *StoragePolicyReconciler) evaluateBackupStatus(ctx context.Context, poli
 		status.BackupHealthStatus = "NoBackupConfigured"
 		alertReasons = append(alertReasons, "no backup configured")
 		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "no_backup_configured")
-		log.Info("Cluster has no backup configured", "cluster", cluster.Name, "namespace", cluster.Namespace)
+		log.Info("Cluster has no backup configured",
+			"cluster", cluster.Name, "namespace", cluster.Namespace)
+	}
+
+	// Get backup timestamps - check ObjectStore first if barman-cloud plugin is configured
+	var lastSuccessfulBackup *time.Time
+	var firstRecoverabilityPoint *time.Time
+
+	if cluster.Status.BarmanCloudPlugin != nil && cluster.Status.BarmanCloudPlugin.Enabled {
+		// Get backup status from ObjectStore CRD
+		objectStoreStatus, err := r.discovery.GetBackupStatusForCluster(ctx, cluster)
+		if err != nil {
+			log.Error(err, "Failed to get ObjectStore backup status, falling back to cluster status",
+				"cluster", cluster.Name, "objectStore", cluster.Status.BarmanCloudPlugin.ObjectStoreName)
+		} else if objectStoreStatus != nil {
+			lastSuccessfulBackup = objectStoreStatus.LastSuccessfulBackupTime
+			firstRecoverabilityPoint = objectStoreStatus.FirstRecoverabilityPoint
+			log.V(1).Info("Using backup status from ObjectStore",
+				"cluster", cluster.Name,
+				"objectStore", cluster.Status.BarmanCloudPlugin.ObjectStoreName,
+				"lastBackup", lastSuccessfulBackup,
+				"firstRecovery", firstRecoverabilityPoint)
+		}
+	}
+
+	// Fall back to cluster status if ObjectStore didn't provide timestamps
+	if lastSuccessfulBackup == nil {
+		lastSuccessfulBackup = cluster.Status.LastSuccessfulBackup
+	}
+	if firstRecoverabilityPoint == nil {
+		firstRecoverabilityPoint = cluster.Status.FirstRecoverabilityPoint
 	}
 
 	// Check last successful backup
-	if cluster.Status.LastSuccessfulBackup != nil {
-		t := metav1.NewTime(*cluster.Status.LastSuccessfulBackup)
+	if lastSuccessfulBackup != nil {
+		t := metav1.NewTime(*lastSuccessfulBackup)
 		status.LastBackupTime = &t
-		backupAge := now.Sub(*cluster.Status.LastSuccessfulBackup)
+		backupAge := now.Sub(*lastSuccessfulBackup)
 		status.LastBackupAgeHours = int32(backupAge.Hours())
 
 		// Record metrics
-		ts := float64(cluster.Status.LastSuccessfulBackup.Unix())
-		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, &ts, nil, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+		ts := float64(lastSuccessfulBackup.Unix())
+		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, &ts, nil,
+			cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
 		metrics.RecordBackupAge(cluster.Name, cluster.Namespace, backupAge.Hours())
 
 		// Check if backup is too old
 		if config.MaxBackupAgeHours > 0 && status.LastBackupAgeHours > config.MaxBackupAgeHours {
 			healthy = false
 			status.BackupHealthStatus = "BackupTooOld"
-			alertReasons = append(alertReasons, fmt.Sprintf("last backup is %d hours old (max: %d)", status.LastBackupAgeHours, config.MaxBackupAgeHours))
+			alertReasons = append(alertReasons, fmt.Sprintf(
+				"last backup is %d hours old (max: %d)",
+				status.LastBackupAgeHours, config.MaxBackupAgeHours))
 			metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "backup_too_old")
-			log.Info("Cluster backup is too old", "cluster", cluster.Name, "namespace", cluster.Namespace, "ageHours", status.LastBackupAgeHours, "maxHours", config.MaxBackupAgeHours)
+			log.Info("Cluster backup is too old",
+				"cluster", cluster.Name, "namespace", cluster.Namespace,
+				"ageHours", status.LastBackupAgeHours, "maxHours", config.MaxBackupAgeHours)
 		}
 	} else if cluster.Status.BackupConfigured {
 		// Backup is configured but no successful backup recorded
@@ -785,41 +828,57 @@ func (r *StoragePolicyReconciler) evaluateBackupStatus(ctx context.Context, poli
 		status.BackupHealthStatus = "NoSuccessfulBackup"
 		alertReasons = append(alertReasons, "no successful backup recorded")
 		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "no_successful_backup")
-		log.Info("Cluster has no successful backup", "cluster", cluster.Name, "namespace", cluster.Namespace)
+		log.Info("Cluster has no successful backup",
+			"cluster", cluster.Name, "namespace", cluster.Namespace)
 	}
 
 	// Check first recoverability point
-	if cluster.Status.FirstRecoverabilityPoint != nil {
-		t := metav1.NewTime(*cluster.Status.FirstRecoverabilityPoint)
+	if firstRecoverabilityPoint != nil {
+		t := metav1.NewTime(*firstRecoverabilityPoint)
 		status.FirstRecoverabilityPoint = &t
-		recoverabilityAge := now.Sub(*cluster.Status.FirstRecoverabilityPoint)
+		recoverabilityAge := now.Sub(*firstRecoverabilityPoint)
 
 		// Record metrics
-		ts := float64(cluster.Status.FirstRecoverabilityPoint.Unix())
-		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, &ts, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+		ts := float64(firstRecoverabilityPoint.Unix())
+		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, &ts,
+			cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
 		metrics.RecordFirstRecoverabilityAge(cluster.Name, cluster.Namespace, recoverabilityAge.Hours())
 
 		// Check if first recoverability point is too old
-		if config.MaxRecoveryPointAgeHours > 0 && int32(recoverabilityAge.Hours()) > config.MaxRecoveryPointAgeHours {
+		ageHours := int32(recoverabilityAge.Hours())
+		if config.MaxRecoveryPointAgeHours > 0 && ageHours > config.MaxRecoveryPointAgeHours {
 			healthy = false
 			if status.BackupHealthStatus == "Healthy" {
 				status.BackupHealthStatus = "RecoveryPointTooOld"
 			}
-			alertReasons = append(alertReasons, fmt.Sprintf("first recovery point is %d hours old (max: %d)", int32(recoverabilityAge.Hours()), config.MaxRecoveryPointAgeHours))
+			alertReasons = append(alertReasons, fmt.Sprintf(
+				"first recovery point is %d hours old (max: %d)",
+				ageHours, config.MaxRecoveryPointAgeHours))
 			metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "recovery_point_too_old")
-			log.Info("Cluster recovery point is too old", "cluster", cluster.Name, "namespace", cluster.Namespace, "ageHours", int32(recoverabilityAge.Hours()), "maxHours", config.MaxRecoveryPointAgeHours)
+			log.Info("Cluster recovery point is too old",
+				"cluster", cluster.Name, "namespace", cluster.Namespace,
+				"ageHours", ageHours, "maxHours", config.MaxRecoveryPointAgeHours)
 		}
 	}
 
 	// Check continuous archiving status
-	if config.RequireContinuousArchiving && cluster.Status.BackupConfigured && !cluster.Status.ContinuousArchivingWorking {
+	// For barman-cloud plugin, also check if the plugin is configured as WAL archiver
+	archivingRequired := config.RequireContinuousArchiving && cluster.Status.BackupConfigured
+	archivingWorking := cluster.Status.ContinuousArchivingWorking
+	if cluster.Status.BarmanCloudPlugin != nil && cluster.Status.BarmanCloudPlugin.IsWALArchiver {
+		// If using barman-cloud as WAL archiver and we have recovery point, archiving is working
+		archivingWorking = archivingWorking || (firstRecoverabilityPoint != nil)
+	}
+
+	if archivingRequired && !archivingWorking {
 		healthy = false
 		if status.BackupHealthStatus == "Healthy" {
 			status.BackupHealthStatus = "ArchivingNotWorking"
 		}
 		alertReasons = append(alertReasons, "continuous WAL archiving is not working")
 		metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "archiving_not_working")
-		log.Info("Cluster WAL archiving is not working", "cluster", cluster.Name, "namespace", cluster.Namespace)
+		log.Info("Cluster WAL archiving is not working",
+			"cluster", cluster.Name, "namespace", cluster.Namespace)
 	}
 
 	// Update healthy status
@@ -828,7 +887,8 @@ func (r *StoragePolicyReconciler) evaluateBackupStatus(ctx context.Context, poli
 	}
 
 	// Record overall backup health metric
-	metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, nil, cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
+	metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, nil,
+		archivingWorking, cluster.Status.BackupConfigured, healthy)
 
 	// Send alerts for backup issues
 	if len(alertReasons) > 0 {

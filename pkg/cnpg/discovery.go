@@ -34,6 +34,14 @@ const (
 	CNPGGroupVersion = "postgresql.cnpg.io/v1"
 	// CNPGKind is the kind for CNPG clusters
 	CNPGKind = "Cluster"
+	// BarmanCloudPluginName is the name of the barman-cloud plugin
+	BarmanCloudPluginName = "barman-cloud.cloudnative-pg.io"
+	// ObjectStoreGroup is the API group for ObjectStore CRD
+	ObjectStoreGroup = "barmancloud.cnpg.io"
+	// ObjectStoreVersion is the API version for ObjectStore CRD
+	ObjectStoreVersion = "v1"
+	// ObjectStoreKind is the kind for ObjectStore CRD
+	ObjectStoreKind = "ObjectStore"
 )
 
 var (
@@ -42,6 +50,12 @@ var (
 		Group:   "postgresql.cnpg.io",
 		Version: "v1",
 		Kind:    "Cluster",
+	}
+	// ObjectStoreGVK is the GroupVersionKind for ObjectStore
+	ObjectStoreGVK = schema.GroupVersionKind{
+		Group:   ObjectStoreGroup,
+		Version: ObjectStoreVersion,
+		Kind:    ObjectStoreKind,
 	}
 )
 
@@ -74,6 +88,30 @@ type ClusterStatus struct {
 	LastSuccessfulBackup       *time.Time
 	ContinuousArchivingWorking bool
 	BackupConfigured           bool
+	// Barman-cloud plugin info (when using external ObjectStore)
+	BarmanCloudPlugin *BarmanCloudPluginInfo
+}
+
+// BarmanCloudPluginInfo contains information about the barman-cloud plugin configuration
+type BarmanCloudPluginInfo struct {
+	// Enabled indicates if the barman-cloud plugin is configured
+	Enabled bool
+	// IsWALArchiver indicates if the plugin is configured as WAL archiver
+	IsWALArchiver bool
+	// ObjectStoreName is the name of the ObjectStore CRD referenced by the plugin
+	ObjectStoreName string
+	// ObjectStoreNamespace is the namespace of the ObjectStore CRD (defaults to cluster namespace)
+	ObjectStoreNamespace string
+}
+
+// ObjectStoreBackupStatus contains backup status from an ObjectStore CRD
+type ObjectStoreBackupStatus struct {
+	// ClusterName is the name of the cluster this status is for
+	ClusterName string
+	// FirstRecoverabilityPoint is the oldest point in time recovery is possible
+	FirstRecoverabilityPoint *time.Time
+	// LastSuccessfulBackupTime is the time of the last successful backup
+	LastSuccessfulBackupTime *time.Time
 }
 
 // Discovery provides methods for discovering CNPG clusters
@@ -242,7 +280,57 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 		info.Status.BackupConfigured = true
 	}
 
+	// Check for barman-cloud plugin configuration
+	info.Status.BarmanCloudPlugin = d.extractBarmanCloudPluginInfo(cluster)
+	if info.Status.BarmanCloudPlugin != nil && info.Status.BarmanCloudPlugin.Enabled {
+		// If barman-cloud plugin is configured, backup is configured
+		info.Status.BackupConfigured = true
+	}
+
 	return info, nil
+}
+
+// extractBarmanCloudPluginInfo extracts barman-cloud plugin configuration from cluster spec
+func (d *Discovery) extractBarmanCloudPluginInfo(
+	cluster *unstructured.Unstructured,
+) *BarmanCloudPluginInfo {
+	plugins, found, _ := unstructured.NestedSlice(cluster.Object, "spec", "plugins")
+	if !found {
+		return nil
+	}
+
+	for _, plugin := range plugins {
+		pluginMap, ok := plugin.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, _ := pluginMap["name"].(string)
+		if name != BarmanCloudPluginName {
+			continue
+		}
+
+		info := &BarmanCloudPluginInfo{
+			Enabled:              true,
+			ObjectStoreNamespace: cluster.GetNamespace(), // Default to cluster namespace
+		}
+
+		// Check if isWALArchiver is set
+		if isWALArchiver, ok := pluginMap["isWALArchiver"].(bool); ok {
+			info.IsWALArchiver = isWALArchiver
+		}
+
+		// Extract parameters to find barmanObjectName
+		if params, ok := pluginMap["parameters"].(map[string]interface{}); ok {
+			if barmanObjectName, ok := params["barmanObjectName"].(string); ok {
+				info.ObjectStoreName = barmanObjectName
+			}
+		}
+
+		return info
+	}
+
+	return nil
 }
 
 // GetClusterPVCs gets the PVCs associated with a CNPG cluster
@@ -342,4 +430,86 @@ func (d *Discovery) GetClusterAnnotations(ctx context.Context, name, namespace s
 	}
 
 	return cluster.GetAnnotations(), nil
+}
+
+// GetObjectStoreBackupStatus gets backup status from an ObjectStore CRD for a specific cluster
+func (d *Discovery) GetObjectStoreBackupStatus(
+	ctx context.Context,
+	objectStoreName, objectStoreNamespace, clusterName string,
+) (*ObjectStoreBackupStatus, error) {
+	objectStore := &unstructured.Unstructured{}
+	objectStore.SetGroupVersionKind(ObjectStoreGVK)
+
+	if err := d.client.Get(ctx, client.ObjectKey{
+		Name:      objectStoreName,
+		Namespace: objectStoreNamespace,
+	}, objectStore); err != nil {
+		return nil, fmt.Errorf(
+			"failed to get ObjectStore %s/%s: %w",
+			objectStoreNamespace, objectStoreName, err,
+		)
+	}
+
+	// Extract serverRecoveryWindow for the specific cluster
+	serverRecoveryWindow, found, _ := unstructured.NestedMap(
+		objectStore.Object, "status", "serverRecoveryWindow",
+	)
+	if !found {
+		return nil, nil // ObjectStore exists but has no recovery window data yet
+	}
+
+	clusterWindow, ok := serverRecoveryWindow[clusterName].(map[string]interface{})
+	if !ok {
+		return nil, nil // No data for this cluster in the ObjectStore
+	}
+
+	status := &ObjectStoreBackupStatus{
+		ClusterName: clusterName,
+	}
+
+	// Parse firstRecoverabilityPoint
+	if frp, ok := clusterWindow["firstRecoverabilityPoint"].(string); ok && frp != "" {
+		if t, err := time.Parse(time.RFC3339, frp); err == nil {
+			status.FirstRecoverabilityPoint = &t
+		}
+	}
+
+	// Parse lastSuccessfulBackupTime
+	if lsbt, ok := clusterWindow["lastSuccessfulBackupTime"].(string); ok && lsbt != "" {
+		if t, err := time.Parse(time.RFC3339, lsbt); err == nil {
+			status.LastSuccessfulBackupTime = &t
+		}
+	}
+
+	return status, nil
+}
+
+// GetBackupStatusForCluster gets backup status for a cluster, checking ObjectStore if barman-cloud plugin is used
+func (d *Discovery) GetBackupStatusForCluster(
+	ctx context.Context,
+	cluster ClusterInfo,
+) (*ObjectStoreBackupStatus, error) {
+	// If barman-cloud plugin is configured, get status from ObjectStore
+	if cluster.Status.BarmanCloudPlugin != nil &&
+		cluster.Status.BarmanCloudPlugin.Enabled &&
+		cluster.Status.BarmanCloudPlugin.ObjectStoreName != "" {
+
+		return d.GetObjectStoreBackupStatus(
+			ctx,
+			cluster.Status.BarmanCloudPlugin.ObjectStoreName,
+			cluster.Status.BarmanCloudPlugin.ObjectStoreNamespace,
+			cluster.Name,
+		)
+	}
+
+	// Otherwise, return status from cluster itself (legacy mode)
+	if cluster.Status.LastSuccessfulBackup != nil || cluster.Status.FirstRecoverabilityPoint != nil {
+		return &ObjectStoreBackupStatus{
+			ClusterName:              cluster.Name,
+			FirstRecoverabilityPoint: cluster.Status.FirstRecoverabilityPoint,
+			LastSuccessfulBackupTime: cluster.Status.LastSuccessfulBackup,
+		}, nil
+	}
+
+	return nil, nil
 }

@@ -50,6 +50,20 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - barmancloud.cnpg.io
+  resources:
+  - objectstores
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - barmancloud.cnpg.io
+  resources:
+  - objectstores/status
+  verbs:
+  - get
+- apiGroups:
   - cnpg.supporttools.io
   resources:
   - storageevents
