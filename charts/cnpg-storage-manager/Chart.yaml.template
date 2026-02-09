@@ -1,0 +1,21 @@
+apiVersion: v2
+name: cnpg-storage-manager
+description: A Kubernetes controller for automated storage management of CloudNativePG clusters
+type: application
+version: ${CHART_VERSION}
+appVersion: "${APP_VERSION}"
+kubeVersion: ">=1.26.0-0"
+keywords:
+  - kubernetes
+  - cnpg
+  - cloudnativepg
+  - postgresql
+  - storage
+  - pvc
+  - expansion
+home: https://github.com/supporttools/cnpg-storage-manager
+sources:
+  - https://github.com/supporttools/cnpg-storage-manager
+maintainers:
+  - name: SupportTools
+    url: https://github.com/supporttools

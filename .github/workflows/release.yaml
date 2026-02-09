@@ -121,71 +121,60 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  helm-release:
-    name: Helm Chart Release
+  helm-publish:
+    name: Publish Helm Chart
     runs-on: ubuntu-latest
     needs: [release]
-    permissions:
-      contents: write
-      pages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Configure Git
+      - name: Install gettext
         run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          sudo apt-get update && sudo apt-get install -y gettext
 
       - name: Setup Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.13.0
+        uses: azure/setup-helm@v4.2.0
 
       - name: Get version
         id: version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          VERSION=${GITHUB_REF#refs/tags/}
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Update chart version
-        run: |
-          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" charts/cnpg-storage-manager/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" charts/cnpg-storage-manager/Chart.yaml
-          sed -i "s/tag:.*/tag: \"v${{ steps.version.outputs.version }}\"/" charts/cnpg-storage-manager/values.yaml
+      - name: Helm Lint
+        run: helm lint charts/cnpg-storage-manager/
 
       - name: Package Helm chart
         run: |
-          helm package charts/cnpg-storage-manager -d .helm-releases
+          export CHART_VERSION="${{ steps.version.outputs.version }}"
+          export APP_VERSION="${{ steps.version.outputs.version }}"
+          export IMAGE_TAG="${{ steps.version.outputs.version }}"
+          echo "CHART_VERSION=${CHART_VERSION}"
+          echo "APP_VERSION=${APP_VERSION}"
+          echo "IMAGE_TAG=${IMAGE_TAG}"
+          envsubst < charts/cnpg-storage-manager/Chart.yaml.template > charts/cnpg-storage-manager/Chart.yaml
+          envsubst < charts/cnpg-storage-manager/values.yaml.template > charts/cnpg-storage-manager/values.yaml
+          mkdir -p helm/repo
+          helm package charts/cnpg-storage-manager --destination helm/repo
 
-      - name: Checkout gh-pages
+      - name: Checkout helm-chart repository
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
-          path: gh-pages
-        continue-on-error: true
+          repository: SupportTools/helm-chart
+          path: helm-chart
+          token: ${{ secrets.BOT_TOKEN }}
 
-      - name: Setup gh-pages branch
+      - name: Configure Git
         run: |
-          if [ ! -d "gh-pages" ]; then
-            mkdir gh-pages
-            cd gh-pages
-            git init
-            git checkout -b gh-pages
-          fi
+          git config --global user.email "github-action@users.noreply.github.com"
+          git config --global user.name "GitHub Action"
 
       - name: Update Helm repository
         run: |
-          cp .helm-releases/*.tgz gh-pages/
-          cd gh-pages
-          helm repo index . --url https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          cp helm/repo/cnpg-storage-manager-*.tgz helm-chart/
+          cd helm-chart
+          helm repo index . --url https://charts.support.tools/
           git add .
-          git commit -m "Release helm chart ${{ steps.version.outputs.version }}" || echo "No changes to commit"
-
-      - name: Push to gh-pages
-        run: |
-          cd gh-pages
-          git push origin gh-pages --force || echo "gh-pages branch not configured"
-        continue-on-error: true
+          git commit -m "Update cnpg-storage-manager Helm chart to ${{ steps.version.outputs.version }}"
+          git push
