@@ -178,17 +178,6 @@ jobs:
         if: always()
         continue-on-error: true  # Don't fail if GitHub Advanced Security is not enabled
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
