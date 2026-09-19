@@ -133,7 +133,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y gettext
 
+      # Same as ci.yaml: use the runner image's baked helm; get.helm.sh is flaky
+      # from the on-prem egress.
+      - name: Check for baked helm
+        id: helm-check
+        run: echo "present=$(command -v helm >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Helm
+        if: steps.helm-check.outputs.present != 'true'
         uses: azure/setup-helm@v4.2.0
 
       - name: Get version

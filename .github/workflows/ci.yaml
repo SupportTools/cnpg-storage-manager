@@ -137,7 +137,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The on-prem runner image bakes helm v3, and get.helm.sh is flaky from the
+      # on-prem egress (setup-helm died on ECONNRESET x3). Only download when absent.
+      - name: Check for baked helm
+        id: helm-check
+        run: echo "present=$(command -v helm >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Helm
+        if: steps.helm-check.outputs.present != 'true'
         uses: azure/setup-helm@v3
         with:
           version: v3.13.0
