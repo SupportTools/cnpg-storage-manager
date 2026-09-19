@@ -13,7 +13,7 @@ env:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,14 +22,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Run tests
         run: go test -v -race ./pkg/...
 
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     needs: [test]
     permissions:
       contents: write
@@ -44,7 +45,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -123,7 +125,7 @@ jobs:
 
   helm-publish:
     name: Publish Helm Chart
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     needs: [release]
     steps:
       - name: Checkout
@@ -133,7 +135,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y gettext
 
+      # Same as ci.yaml: use the runner image's baked helm; get.helm.sh is flaky
+      # from the on-prem egress.
+      - name: Check for baked helm
+        id: helm-check
+        run: echo "present=$(command -v helm >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Helm
+        if: steps.helm-check.outputs.present != 'true'
         uses: azure/setup-helm@v4.2.0
 
       - name: Get version

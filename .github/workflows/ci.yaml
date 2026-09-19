@@ -18,7 +18,7 @@ env:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +27,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
@@ -37,7 +38,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,7 +47,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Run unit tests
         run: |
@@ -65,7 +67,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     needs: [lint, test]
     steps:
       - name: Checkout
@@ -75,7 +77,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Generate manifests
         run: make manifests generate
@@ -89,7 +92,7 @@ jobs:
 
   docker:
     name: Docker Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     needs: [build]
     if: github.event_name == 'push'
     permissions:
@@ -132,12 +135,19 @@ jobs:
 
   helm:
     name: Helm Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The on-prem runner image bakes helm v3, and get.helm.sh is flaky from the
+      # on-prem egress (setup-helm died on ECONNRESET x3). Only download when absent.
+      - name: Check for baked helm
+        id: helm-check
+        run: echo "present=$(command -v helm >/dev/null && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Helm
+        if: steps.helm-check.outputs.present != 'true'
         uses: azure/setup-helm@v3
         with:
           version: v3.13.0
@@ -152,7 +162,7 @@ jobs:
 
   security:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     permissions:
       security-events: write
       contents: read
@@ -164,7 +174,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
@@ -180,7 +191,7 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     needs: [docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
@@ -191,7 +202,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: true
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Create kind cluster
         uses: helm/kind-action@v1

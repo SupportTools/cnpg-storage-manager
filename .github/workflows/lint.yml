@@ -7,7 +7,7 @@ on:
 jobs:
   lint:
     name: Run on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-linux
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -16,6 +16,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          # GOCACHE/GOMODCACHE already live on the runner's persistent shared /cache; setup-go's cache step only re-archives it
+          cache: false
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v8
