@@ -128,9 +128,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install gettext
-        run: |
-          sudo apt-get update && sudo apt-get install -y gettext
+      # envsubst (gettext-base) is baked into the runner image; no apt-get
+      # install at job time (taskforge-2824).
+      - name: Verify baked envsubst
+        run: command -v envsubst
 
       # helm is baked into the runner image; no installer action or
       # get.helm.sh fallback (no job-time downloads, taskforge-2675).
