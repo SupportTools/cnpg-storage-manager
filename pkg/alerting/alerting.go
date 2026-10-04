@@ -34,6 +34,15 @@ import (
 	"github.com/supporttools/cnpg-storage-manager/pkg/metrics"
 )
 
+// String literals shared across this file (goconst).
+const (
+	keySeverity      = "severity"
+	keyTitle         = "title"
+	keyValue         = "value"
+	keyShort         = "short"
+	defaultNamespace = "default"
+)
+
 // AlertSeverity defines the severity of an alert
 type AlertSeverity string
 
@@ -81,7 +90,7 @@ func (m *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 
 	// Check if alert is suppressed
 	if m.isSuppressed(alert) {
-		logger.V(1).Info("Alert suppressed", "cluster", alert.ClusterName, "severity", alert.Severity)
+		logger.V(1).Info("Alert suppressed", "cluster", alert.ClusterName, keySeverity, alert.Severity)
 		metrics.RecordAlertSuppressed(alert.ClusterName, alert.ClusterNamespace, "duplicate")
 		return nil
 	}
@@ -134,7 +143,7 @@ func (m *AlertManager) sendToAlertmanager(ctx context.Context, alert *Alert, cha
 				"alertname": "CNPGStorageAlert",
 				"cluster":   alert.ClusterName,
 				"namespace": alert.ClusterNamespace,
-				"severity":  string(alert.Severity),
+				keySeverity: string(alert.Severity),
 			},
 			"annotations": map[string]string{
 				"summary":     alert.Message,
@@ -205,7 +214,7 @@ func (m *AlertManager) sendToSlack(ctx context.Context, alert *Alert, channel cn
 		"attachments": []map[string]interface{}{
 			{
 				"color":  color,
-				"title":  fmt.Sprintf("CNPG Storage Alert - %s", alert.Severity),
+				keyTitle: fmt.Sprintf("CNPG Storage Alert - %s", alert.Severity),
 				"text":   alert.Message,
 				"fields": buildSlackFields(alert),
 				"ts":     alert.Timestamp.Unix(),
@@ -262,7 +271,7 @@ func (m *AlertManager) sendToPagerDuty(ctx context.Context, alert *Alert, channe
 		"dedup_key":    fmt.Sprintf("cnpg-storage-%s-%s", alert.ClusterNamespace, alert.ClusterName),
 		"payload": map[string]interface{}{
 			"summary":   alert.Message,
-			"severity":  pdSeverity,
+			keySeverity: pdSeverity,
 			"source":    fmt.Sprintf("%s/%s", alert.ClusterNamespace, alert.ClusterName),
 			"component": "cnpg-storage-manager",
 			"group":     "storage",
@@ -270,7 +279,7 @@ func (m *AlertManager) sendToPagerDuty(ctx context.Context, alert *Alert, channe
 			"custom_details": map[string]interface{}{
 				"cluster_name":      alert.ClusterName,
 				"cluster_namespace": alert.ClusterNamespace,
-				"severity":          string(alert.Severity),
+				keySeverity:         string(alert.Severity),
 				"details":           alert.Details,
 			},
 		},
@@ -307,7 +316,7 @@ func (m *AlertManager) getSecretValue(ctx context.Context, secretName, key strin
 	}
 
 	// Parse namespace/name if provided
-	namespace := "default"
+	namespace := defaultNamespace
 	name := secretName
 	if idx := bytes.IndexByte([]byte(secretName), '/'); idx != -1 {
 		namespace = secretName[:idx]
@@ -366,24 +375,25 @@ func (m *AlertManager) ClearSuppression(clusterNamespace, clusterName string) {
 
 // buildSlackFields builds Slack attachment fields from alert details
 func buildSlackFields(alert *Alert) []map[string]interface{} {
-	fields := []map[string]interface{}{
+	fields := make([]map[string]interface{}, 0, 2+len(alert.Details))
+	fields = append(fields, []map[string]interface{}{
 		{
-			"title": "Cluster",
-			"value": fmt.Sprintf("%s/%s", alert.ClusterNamespace, alert.ClusterName),
-			"short": true,
+			keyTitle: "Cluster",
+			keyValue: fmt.Sprintf("%s/%s", alert.ClusterNamespace, alert.ClusterName),
+			keyShort: true,
 		},
 		{
-			"title": "Severity",
-			"value": string(alert.Severity),
-			"short": true,
+			keyTitle: "Severity",
+			keyValue: string(alert.Severity),
+			keyShort: true,
 		},
-	}
+	}...)
 
 	for k, v := range alert.Details {
 		fields = append(fields, map[string]interface{}{
-			"title": k,
-			"value": v,
-			"short": true,
+			keyTitle: k,
+			keyValue: v,
+			keyShort: true,
 		})
 	}
 

@@ -25,6 +25,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// annotationTrue is the annotation value that enables a boolean flag.
+const annotationTrue = "true"
+
 const (
 	// AnnotationPrefix is the prefix for all CNPG Storage Manager annotations
 	AnnotationPrefix = "storage.cnpg.supporttools.io"
@@ -80,7 +83,7 @@ func (ca *ClusterAnnotations) GetAnnotations() map[string]string {
 
 // IsManaged returns true if the cluster is managed by CNPG Storage Manager
 func (ca *ClusterAnnotations) IsManaged() bool {
-	return ca.annotations[AnnotationManaged] == "true"
+	return ca.annotations[AnnotationManaged] == annotationTrue
 }
 
 // SetManaged marks the cluster as managed
@@ -90,7 +93,7 @@ func (ca *ClusterAnnotations) SetManaged(managed bool) {
 
 // IsPaused returns true if the cluster is paused
 func (ca *ClusterAnnotations) IsPaused() bool {
-	if ca.annotations[AnnotationPaused] != "true" {
+	if ca.annotations[AnnotationPaused] != annotationTrue {
 		return false
 	}
 
@@ -241,7 +244,7 @@ func (ca *ClusterAnnotations) SetLastWALCleanup(t time.Time) {
 
 // IsCircuitBreakerOpen returns true if the circuit breaker is open
 func (ca *ClusterAnnotations) IsCircuitBreakerOpen() bool {
-	return ca.annotations[AnnotationCircuitBreakerOpen] == "true"
+	return ca.annotations[AnnotationCircuitBreakerOpen] == annotationTrue
 }
 
 // SetCircuitBreakerOpen sets the circuit breaker state
@@ -251,7 +254,7 @@ func (ca *ClusterAnnotations) SetCircuitBreakerOpen(open bool) {
 
 // ShouldResetCircuitBreaker returns true if a manual reset was requested
 func (ca *ClusterAnnotations) ShouldResetCircuitBreaker() bool {
-	return ca.annotations[AnnotationCircuitBreakerReset] == "true"
+	return ca.annotations[AnnotationCircuitBreakerReset] == annotationTrue
 }
 
 // ClearCircuitBreakerReset clears the manual reset annotation

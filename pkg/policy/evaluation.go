@@ -23,6 +23,11 @@ import (
 	cnpgv1alpha1 "github.com/supporttools/cnpg-storage-manager/api/v1alpha1"
 )
 
+// String literals shared across this file (goconst).
+const (
+	paramSeverity = "severity"
+)
+
 // ThresholdLevel represents a threshold level
 type ThresholdLevel string
 
@@ -182,7 +187,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: 0,
 			Parameters: map[string]interface{}{
-				"severity": "critical",
+				paramSeverity: "critical",
 			},
 		})
 
@@ -202,7 +207,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: 0,
 			Parameters: map[string]interface{}{
-				"severity": "warning",
+				paramSeverity: "warning",
 			},
 		})
 
@@ -212,7 +217,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: 0,
 			Parameters: map[string]interface{}{
-				"severity": "critical",
+				paramSeverity: "critical",
 			},
 		})
 
@@ -222,7 +227,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: 0,
 			Parameters: map[string]interface{}{
-				"severity": "warning",
+				paramSeverity: "warning",
 			},
 		})
 

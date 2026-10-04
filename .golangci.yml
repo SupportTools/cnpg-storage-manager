@@ -36,6 +36,11 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # Test fixtures repeat literal names/namespaces by design; goconst
+      # >= v2.6 reports them (v2.5.0 did not). Keep goconst for prod code.
+      - linters:
+          - goconst
+        path: _test\.go
     paths:
       - third_party$
       - builtin$

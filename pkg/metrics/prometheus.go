@@ -21,6 +21,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
+// String literals shared across this file (goconst).
+const (
+	labelCluster   = "cluster"
+	labelResult    = "result"
+	labelType      = "type"
+	labelInstance  = "instance"
+	labelNamespace = "namespace"
+	labelPVC       = "pvc"
+)
+
 const (
 	// MetricsNamespace is the namespace for all CNPG Storage Manager metrics
 	MetricsNamespace = "cnpg_storage_manager"
@@ -34,7 +44,7 @@ var (
 			Name:      "pvc_usage_bytes",
 			Help:      "Current PVC usage in bytes",
 		},
-		[]string{"cluster", "namespace", "pvc", "instance"},
+		[]string{labelCluster, labelNamespace, labelPVC, labelInstance},
 	)
 
 	// PVCCapacityBytes tracks the total capacity of PVCs in bytes
@@ -44,7 +54,7 @@ var (
 			Name:      "pvc_capacity_bytes",
 			Help:      "Total PVC capacity in bytes",
 		},
-		[]string{"cluster", "namespace", "pvc", "instance"},
+		[]string{labelCluster, labelNamespace, labelPVC, labelInstance},
 	)
 
 	// PVCUsagePercent tracks the usage percentage of PVCs
@@ -54,7 +64,7 @@ var (
 			Name:      "pvc_usage_percent",
 			Help:      "PVC usage as a percentage of capacity",
 		},
-		[]string{"cluster", "namespace", "pvc", "instance"},
+		[]string{labelCluster, labelNamespace, labelPVC, labelInstance},
 	)
 
 	// WALDirectoryBytes tracks the WAL directory size in bytes
@@ -64,7 +74,7 @@ var (
 			Name:      "wal_directory_bytes",
 			Help:      "WAL directory size in bytes",
 		},
-		[]string{"cluster", "namespace", "instance"},
+		[]string{labelCluster, labelNamespace, labelInstance},
 	)
 
 	// WALFilesCount tracks the number of WAL files
@@ -74,7 +84,7 @@ var (
 			Name:      "wal_files_count",
 			Help:      "Number of WAL files",
 		},
-		[]string{"cluster", "namespace", "instance"},
+		[]string{labelCluster, labelNamespace, labelInstance},
 	)
 
 	// ClustersManagedTotal tracks the number of clusters managed by policies
@@ -84,7 +94,7 @@ var (
 			Name:      "clusters_managed_total",
 			Help:      "Total number of clusters managed by storage policies",
 		},
-		[]string{"namespace"},
+		[]string{labelNamespace},
 	)
 
 	// PoliciesActiveTotal tracks the number of active storage policies
@@ -94,7 +104,7 @@ var (
 			Name:      "policies_active_total",
 			Help:      "Total number of active storage policies",
 		},
-		[]string{"namespace"},
+		[]string{labelNamespace},
 	)
 
 	// ReconcileTotal tracks the total number of reconciliations
@@ -104,7 +114,7 @@ var (
 			Name:      "reconcile_total",
 			Help:      "Total number of reconciliations",
 		},
-		[]string{"controller", "result"},
+		[]string{"controller", labelResult},
 	)
 
 	// ReconcileDuration tracks the duration of reconciliations
@@ -125,7 +135,7 @@ var (
 			Name:      "errors_total",
 			Help:      "Total number of errors",
 		},
-		[]string{"type", "cluster", "namespace"},
+		[]string{labelType, labelCluster, labelNamespace},
 	)
 
 	// ThresholdBreachesTotal tracks threshold breaches
@@ -135,7 +145,7 @@ var (
 			Name:      "threshold_breaches_total",
 			Help:      "Total number of threshold breaches",
 		},
-		[]string{"cluster", "namespace", "level"},
+		[]string{labelCluster, labelNamespace, "level"},
 	)
 
 	// ExpansionTotal tracks expansion operations
@@ -145,7 +155,7 @@ var (
 			Name:      "expansion_total",
 			Help:      "Total number of expansion operations",
 		},
-		[]string{"cluster", "namespace", "result"},
+		[]string{labelCluster, labelNamespace, labelResult},
 	)
 
 	// ExpansionBytesTotal tracks bytes expanded
@@ -155,7 +165,7 @@ var (
 			Name:      "expansion_bytes_total",
 			Help:      "Total bytes expanded",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// WALCleanupTotal tracks WAL cleanup operations
@@ -165,7 +175,7 @@ var (
 			Name:      "wal_cleanup_total",
 			Help:      "Total number of WAL cleanup operations",
 		},
-		[]string{"cluster", "namespace", "result"},
+		[]string{labelCluster, labelNamespace, labelResult},
 	)
 
 	// WALFilesRemoved tracks the number of WAL files removed
@@ -175,7 +185,7 @@ var (
 			Name:      "wal_files_removed_total",
 			Help:      "Total number of WAL files removed",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// CircuitBreakerState tracks circuit breaker state (0=closed, 1=open)
@@ -185,7 +195,7 @@ var (
 			Name:      "circuit_breaker_open",
 			Help:      "Circuit breaker state (0=closed, 1=open)",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// AlertsSentTotal tracks alerts sent
@@ -195,7 +205,7 @@ var (
 			Name:      "alerts_sent_total",
 			Help:      "Total number of alerts sent",
 		},
-		[]string{"cluster", "namespace", "severity", "channel"},
+		[]string{labelCluster, labelNamespace, "severity", "channel"},
 	)
 
 	// AlertsSuppressedTotal tracks suppressed alerts
@@ -205,7 +215,7 @@ var (
 			Name:      "alerts_suppressed_total",
 			Help:      "Total number of suppressed alerts",
 		},
-		[]string{"cluster", "namespace", "reason"},
+		[]string{labelCluster, labelNamespace, "reason"},
 	)
 
 	// MetricsCollectionDuration tracks metrics collection duration
@@ -215,7 +225,7 @@ var (
 			Name:      "metrics_collection_duration_seconds",
 			Help:      "Duration of metrics collection in seconds",
 		},
-		[]string{"type"},
+		[]string{labelType},
 	)
 
 	// BackupLastSuccessTimestamp tracks the last successful backup timestamp
@@ -225,7 +235,7 @@ var (
 			Name:      "backup_last_success_timestamp",
 			Help:      "Unix timestamp of the last successful backup",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupLastSuccessAgeHours tracks hours since last successful backup
@@ -235,7 +245,7 @@ var (
 			Name:      "backup_last_success_age_hours",
 			Help:      "Hours since the last successful backup",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupFirstRecoverabilityTimestamp tracks the first recoverability point
@@ -245,7 +255,7 @@ var (
 			Name:      "backup_first_recoverability_timestamp",
 			Help:      "Unix timestamp of the first recoverability point",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupFirstRecoverabilityAgeHours tracks hours since first recoverability point
@@ -255,7 +265,7 @@ var (
 			Name:      "backup_first_recoverability_age_hours",
 			Help:      "Hours since the first recoverability point",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupContinuousArchivingWorking tracks if WAL archiving is working
@@ -265,7 +275,7 @@ var (
 			Name:      "backup_continuous_archiving_working",
 			Help:      "Whether continuous WAL archiving is working (1=yes, 0=no)",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupConfigured tracks if backups are configured for a cluster
@@ -275,7 +285,7 @@ var (
 			Name:      "backup_configured",
 			Help:      "Whether backups are configured for the cluster (1=yes, 0=no)",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupHealthy tracks overall backup health status
@@ -285,7 +295,7 @@ var (
 			Name:      "backup_healthy",
 			Help:      "Whether backups are healthy (1=yes, 0=no)",
 		},
-		[]string{"cluster", "namespace"},
+		[]string{labelCluster, labelNamespace},
 	)
 
 	// BackupAlertsTotal tracks backup-related alerts
@@ -295,7 +305,7 @@ var (
 			Name:      "backup_alerts_total",
 			Help:      "Total number of backup-related alerts",
 		},
-		[]string{"cluster", "namespace", "type"},
+		[]string{labelCluster, labelNamespace, labelType},
 	)
 )
 
