@@ -18,11 +18,15 @@ jobs:
       - name: Verify baked Go
         run: go version
 
-      - name: Install the latest version of kind
+      # kind is not baked into the runner image. Build a pinned version from
+      # its Go module through the runner's GOPROXY (Athens) instead of curling
+      # the unpinned kind.sigs.k8s.io/dl/latest binary (taskforge-2824).
+      - name: Install kind (pinned, via GOPROXY)
+        env:
+          KIND_VERSION: v0.33.0
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          GOBIN="$RUNNER_TEMP/bin" go install "sigs.k8s.io/kind@${KIND_VERSION}"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Verify kind installation
         run: kind version

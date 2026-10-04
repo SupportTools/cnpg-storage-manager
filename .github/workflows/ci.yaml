@@ -164,10 +164,10 @@ jobs:
       - name: Verify baked Go
         run: go version
 
+      # gosec is baked into the runner image; securego/gosec@master pulled an
+      # unpinned container image at job time (taskforge-2824).
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        with:
-          args: '-no-fail -fmt sarif -out results.sarif ./...'
+        run: gosec -version && gosec -no-fail -fmt sarif -out results.sarif ./...
 
       - name: Upload SARIF file
         uses: github/codeql-action/upload-sarif@v3
@@ -176,33 +176,8 @@ jobs:
         if: always()
         continue-on-error: true  # Don't fail if GitHub Advanced Security is not enabled
 
-  e2e:
-    name: E2E Tests
-    runs-on: self-hosted-linux
-    needs: [docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Go is baked into the self-hosted runner image; setup-go would download
-      # a toolchain at job time (taskforge-2675). go.mod's go 1.24.6 is
-      # satisfied by the newer baked Go.
-      - name: Verify baked Go
-        run: go version
-
-      - name: Create kind cluster
-        uses: helm/kind-action@v1
-        with:
-          cluster_name: e2e-test
-          config: test/e2e/kind-config.yaml
-
-      - name: Install CNPG operator
-        run: |
-          kubectl apply -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.20/releases/cnpg-1.20.0.yaml
-          kubectl wait --for=condition=available --timeout=300s deployment/cnpg-controller-manager -n cnpg-system
-
-      - name: Run E2E tests
-        run: make test-e2e
-        env:
-          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+  # The former `e2e` job here was gated on refs/heads/main while the default
+  # branch is master, so it never ran; it also downloaded kind/kubectl via
+  # helm/kind-action and a CNPG manifest from raw.githubusercontent.com at job
+  # time. test-e2e.yml runs `make test-e2e` on every push and PR, so the job
+  # was removed rather than re-enabled (taskforge-2824).

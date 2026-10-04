@@ -145,7 +145,10 @@ func (r *StoragePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Failed to add finalizer")
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		// The Update above emits a watch event on this StoragePolicy (the
+		// For() watch has no predicates), which re-enqueues the reconcile.
+		// Result.Requeue is deprecated (SA1019, controller-runtime v0.22).
+		return ctrl.Result{}, nil
 	}
 
 	// Initialize internal components if needed
