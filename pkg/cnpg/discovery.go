@@ -29,6 +29,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// String literals shared across this file (goconst).
+const (
+	cnpgGroup    = "postgresql.cnpg.io"
+	phaseHealthy = "Cluster in healthy state"
+	labelCluster = "cnpg.io/cluster"
+	rolePrimary  = "primary"
+)
+
 const (
 	// CNPGGroupVersion is the API group version for CNPG clusters
 	CNPGGroupVersion = "postgresql.cnpg.io/v1"
@@ -47,9 +55,9 @@ const (
 var (
 	// CNPGClusterGVK is the GroupVersionKind for CNPG Cluster
 	CNPGClusterGVK = schema.GroupVersionKind{
-		Group:   "postgresql.cnpg.io",
+		Group:   cnpgGroup,
 		Version: "v1",
-		Kind:    "Cluster",
+		Kind:    CNPGKind,
 	}
 	// ObjectStoreGVK is the GroupVersionKind for ObjectStore
 	ObjectStoreGVK = schema.GroupVersionKind{
@@ -128,7 +136,7 @@ func NewDiscovery(c client.Client) *Discovery {
 func (d *Discovery) ListClusters(ctx context.Context, namespace string) ([]ClusterInfo, error) {
 	clusterList := &unstructured.UnstructuredList{}
 	clusterList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "postgresql.cnpg.io",
+		Group:   cnpgGroup,
 		Version: "v1",
 		Kind:    "ClusterList",
 	})
@@ -240,7 +248,7 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 		info.Status.CurrentPrimaryNode = primaryNode
 	}
 
-	info.Status.Ready = info.Status.Phase == "Cluster in healthy state" || info.Status.ReadyInstances >= info.Instances
+	info.Status.Ready = info.Status.Phase == phaseHealthy || info.Status.ReadyInstances >= info.Instances
 
 	// Extract backup status fields
 	firstRecoverability, found, _ := unstructured.NestedString(
@@ -342,7 +350,7 @@ func (d *Discovery) GetClusterPVCs(
 
 	// CNPG labels PVCs with the cluster name
 	labelSelector := labels.SelectorFromSet(labels.Set{
-		"cnpg.io/cluster": clusterName,
+		labelCluster: clusterName,
 	})
 
 	if err := d.client.List(ctx, pvcList,
@@ -361,7 +369,7 @@ func (d *Discovery) GetClusterPods(ctx context.Context, clusterName, namespace s
 
 	// CNPG labels pods with the cluster name
 	labelSelector := labels.SelectorFromSet(labels.Set{
-		"cnpg.io/cluster": clusterName,
+		labelCluster: clusterName,
 	})
 
 	if err := d.client.List(ctx, podList,
@@ -382,7 +390,7 @@ func (d *Discovery) GetPrimaryPod(ctx context.Context, clusterName, namespace st
 	}
 
 	for i := range pods {
-		if role, ok := pods[i].Labels["cnpg.io/instanceRole"]; ok && role == "primary" {
+		if role, ok := pods[i].Labels["cnpg.io/instanceRole"]; ok && role == rolePrimary {
 			return &pods[i], nil
 		}
 	}

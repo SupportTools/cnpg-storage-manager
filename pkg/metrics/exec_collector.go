@@ -32,6 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// String literals shared across this file (goconst).
+const (
+	postgresContainerName = "postgres"
+)
+
 // ExecCollector collects storage metrics by executing commands inside pods
 // This is used as a fallback when kubelet stats don't provide volume metrics
 // (e.g., for local-path provisioner volumes)
@@ -199,7 +204,7 @@ func (e *ExecCollector) execInPod(
 	containerName := ""
 	for _, container := range pod.Spec.Containers {
 		// Prefer the postgres container if available
-		if container.Name == "postgres" {
+		if container.Name == postgresContainerName {
 			containerName = container.Name
 			break
 		}

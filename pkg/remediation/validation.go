@@ -27,6 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// String literals shared across this file (goconst).
+const (
+	pvcPhaseBound = "Bound"
+	accessModeRWO = "ReadWriteOnce"
+)
+
 // StorageClassCapabilities contains cached capabilities of a storage class
 type StorageClassCapabilities struct {
 	Name                 string
@@ -193,7 +199,7 @@ func (v *StorageClassValidator) ValidatePVCForExpansion(ctx context.Context, pvc
 	})
 
 	// Check 2: PVC is bound
-	if pvc.Phase != "Bound" {
+	if pvc.Phase != pvcPhaseBound {
 		result.Checks = append(result.Checks, PreflightCheck{
 			Name:    "pvc-bound",
 			Passed:  false,
@@ -210,7 +216,7 @@ func (v *StorageClassValidator) ValidatePVCForExpansion(ctx context.Context, pvc
 	// Check 3: PVC access mode is suitable
 	suitableAccessMode := false
 	for _, mode := range pvc.AccessModes {
-		if mode == "ReadWriteOnce" || mode == "ReadWriteMany" {
+		if mode == accessModeRWO || mode == "ReadWriteMany" {
 			suitableAccessMode = true
 			break
 		}

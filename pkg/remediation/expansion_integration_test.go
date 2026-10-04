@@ -331,7 +331,8 @@ func TestExpansionEngine_TotalBytesAdded(t *testing.T) {
 		createTestPVC("test-pvc-2", "default", "expandable-sc", "8Gi"),
 	}
 
-	objs := []runtime.Object{storageClass}
+	objs := make([]runtime.Object, 0, 1+len(pvcs))
+	objs = append(objs, storageClass)
 	for i := range pvcs {
 		objs = append(objs, &pvcs[i])
 	}
