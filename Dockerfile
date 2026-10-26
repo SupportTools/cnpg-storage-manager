@@ -28,7 +28,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+# static-debian13: the default static (debian12) still ships the compromised
+# eMudhra emSign ECC roots (Ubuntu USN-8944-1); debian13 has the fixed bundle.
+FROM gcr.io/distroless/static-debian13:nonroot
 
 LABEL org.opencontainers.image.title="CNPG Storage Manager"
 LABEL org.opencontainers.image.description="Automated storage management for CloudNativePG clusters"
