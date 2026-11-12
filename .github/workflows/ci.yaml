@@ -13,6 +13,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # The cluster pulls from Harbor. Before cluster-services-1332 every build was copied in by hand
+  # with crane. Own project (not supporttools), so this CI credential can overwrite nothing else.
+  HARBOR_REGISTRY: harbor.support.tools
+  HARBOR_IMAGE: harbor.support.tools/cnpg-storage-manager/cnpg-storage-manager
 
 jobs:
   lint:
@@ -93,6 +97,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write   # GitHub OIDC -> Vault (scoped Harbor robot)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -107,11 +112,40 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Keyless: GitHub OIDC -> Vault role gha-cnpg-storage-manager (bound to this repo AND
+      # ref=refs/heads/master, so only a master push can log in) -> robot$cnpg-storage-manager-ci,
+      # pull+push on the Harbor project cnpg-storage-manager only. Rotated weekly in Harbor and
+      # read at runtime, so no repo secret to update. Provisioning: cluster-services
+      # harbor/cnpg-storage-manager-ci-vault-seed.sh + vault/github-actions-oidc-cnpg-storage-manager-setup.sh.
+      - name: Vault login (GitHub OIDC) -> Harbor robot
+        if: github.ref == 'refs/heads/master'
+        uses: hashicorp/vault-action@v3
+        with:
+          url: https://vault.support.tools
+          method: jwt
+          path: github-actions
+          role: gha-cnpg-storage-manager
+          jwtGithubAudience: https://github.com/SupportTools
+          exportEnv: true
+          secrets: |
+            secret/data/harbor/cnpg-storage-manager-ci-robot username | HARBOR_ROBOT_USER ;
+            secret/data/harbor/cnpg-storage-manager-ci-robot password | HARBOR_ROBOT_TOKEN
+
+      - name: Login to Harbor
+        if: github.ref == 'refs/heads/master'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ env.HARBOR_ROBOT_USER }}
+          password: ${{ env.HARBOR_ROBOT_TOKEN }}
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            name=${{ env.HARBOR_IMAGE }},enable=${{ github.ref == 'refs/heads/master' }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -119,6 +153,7 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -127,6 +162,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
+
+      - name: Harbor image evidence
+        if: github.ref == 'refs/heads/master'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          sha="${GITHUB_SHA::7}"
+          got="$(docker buildx imagetools inspect "${HARBOR_IMAGE}:${sha}" --format '{{json .Manifest}}' | jq -r .digest)"
+          [ "$got" = "$DIGEST" ] || { echo "::error::Harbor ${HARBOR_IMAGE}:${sha} is ${got}, want ${DIGEST}"; exit 1; }
+          echo "Pushed ${HARBOR_IMAGE}:${sha}@${DIGEST}" | tee -a "$GITHUB_STEP_SUMMARY"
 
   helm:
     name: Helm Lint
