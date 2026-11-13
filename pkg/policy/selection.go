@@ -109,7 +109,11 @@ func SelectPolicy(policies []cnpgv1alpha1.StoragePolicy, c ClusterIdentity) (*cn
 // the cluster out of all policies. self is matched by namespace/name, so it
 // may be a different copy of the object than the one in policies; when self
 // is missing from policies (for example a stale cache) it is still considered.
-func IsSelectedPolicy(self *cnpgv1alpha1.StoragePolicy, policies []cnpgv1alpha1.StoragePolicy, c ClusterIdentity) (bool, []error) {
+func IsSelectedPolicy(
+	self *cnpgv1alpha1.StoragePolicy,
+	policies []cnpgv1alpha1.StoragePolicy,
+	c ClusterIdentity,
+) (bool, []error) {
 	all := make([]cnpgv1alpha1.StoragePolicy, 0, len(policies)+1)
 	found := false
 	for i := range policies {
