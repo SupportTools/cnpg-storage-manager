@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.priority
+      name: Priority
+      type: integer
     - jsonPath: .status.managedClusters
       name: Managed
       type: integer
@@ -222,6 +225,18 @@ spec:
                     minimum: 1
                     type: integer
                 type: object
+              priority:
+                default: 0
+                description: |-
+                  Priority decides which policy manages a CNPG cluster that more than one
+                  policy matches. Each cluster is managed by exactly one policy: the
+                  matching policy with the highest priority. Ties go to the policy with the
+                  most specific selector (most matchLabels plus matchExpressions; an empty
+                  selector is the least specific), then to the policy whose
+                  namespace/name sorts first. Policies that match a cluster but lose this
+                  contest leave it alone.
+                format: int32
+                type: integer
               selector:
                 description: Selector is a label selector for matching CNPG clusters
                 properties:

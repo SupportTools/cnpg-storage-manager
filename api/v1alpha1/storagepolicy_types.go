@@ -242,6 +242,17 @@ type StoragePolicySpec struct {
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`
 
+	// Priority decides which policy manages a CNPG cluster that more than one
+	// policy matches. Each cluster is managed by exactly one policy: the
+	// matching policy with the highest priority. Ties go to the policy with the
+	// most specific selector (most matchLabels plus matchExpressions; an empty
+	// selector is the least specific), then to the policy whose
+	// namespace/name sorts first. Policies that match a cluster but lose this
+	// contest leave it alone.
+	// +kubebuilder:default=0
+	// +optional
+	Priority int32 `json:"priority,omitempty"`
+
 	// ExcludeClusters is a list of clusters to exclude even if they match the selector
 	// +optional
 	ExcludeClusters []ClusterReference `json:"excludeClusters,omitempty"`
@@ -357,6 +368,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=sp
+// +kubebuilder:printcolumn:name="Priority",type="integer",JSONPath=".spec.priority"
 // +kubebuilder:printcolumn:name="Managed",type="integer",JSONPath=".status.managedClusters"
 // +kubebuilder:printcolumn:name="Warning",type="integer",JSONPath=".spec.thresholds.warning"
 // +kubebuilder:printcolumn:name="Critical",type="integer",JSONPath=".spec.thresholds.critical"
