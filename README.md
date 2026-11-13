@@ -202,6 +202,7 @@ helm upgrade cnpg-storage-manager ./charts/cnpg-storage-manager \
 | Field | Description | Default |
 |-------|-------------|---------|
 | `selector` | Label selector for matching CNPG clusters | Required |
+| `priority` | Wins when several policies match one cluster (higher wins) | 0 |
 | `thresholds.warning` | Warning alert threshold (%) | 70 |
 | `thresholds.critical` | Critical alert threshold (%) | 80 |
 | `thresholds.expansion` | Auto-expansion threshold (%) | 85 |
@@ -217,6 +218,19 @@ helm upgrade cnpg-storage-manager ./charts/cnpg-storage-manager \
 | `circuitBreaker.maxFailures` | Failures before circuit opens | 3 |
 | `circuitBreaker.resetMinutes` | Time before circuit resets | 60 |
 | `dryRun` | Enable dry-run mode | false |
+
+#### When several policies match one cluster
+
+Each CNPG cluster is managed by exactly one StoragePolicy. If several policies match it, the
+controller picks one, in this order:
+
+1. The highest `priority`.
+2. The most specific selector: the most `matchLabels` plus `matchExpressions` entries. An empty
+   selector is the least specific, so a catch-all default policy loses to any narrower one.
+3. The policy whose `namespace/name` sorts first.
+
+The other matching policies leave the cluster alone: no evaluation, no remediation and no
+annotations. A cluster in a policy's `excludeClusters` goes to the next policy in this order.
 
 ### Alert Channels
 

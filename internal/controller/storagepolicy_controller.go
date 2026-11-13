@@ -325,25 +325,32 @@ func (r *StoragePolicyReconciler) cleanupManagedClusters(ctx context.Context, po
 	return nil
 }
 
-// findMatchingClusters finds CNPG clusters matching the policy selector
+// findMatchingClusters finds the CNPG clusters this policy manages: those its
+// selector matches, minus excludeClusters, minus clusters that another policy
+// outranks it for (see policy.SelectPolicy). Every cluster is therefore
+// managed by exactly one policy, chosen deterministically.
 func (r *StoragePolicyReconciler) findMatchingClusters(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy) ([]cnpg.ClusterInfo, error) {
+	log := logf.FromContext(ctx)
+
 	// Get clusters by selector
 	clusters, err := r.discovery.GetClustersBySelector(ctx, "", policyObj.Spec.Selector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get clusters by selector: %w", err)
 	}
 
-	// Filter out excluded clusters
-	excludedSet := make(map[string]bool)
-	for _, ref := range policyObj.Spec.ExcludeClusters {
-		key := fmt.Sprintf("%s/%s", ref.Namespace, ref.Name)
-		excludedSet[key] = true
+	var allPolicies cnpgv1alpha1.StoragePolicyList
+	if err := r.List(ctx, &allPolicies); err != nil {
+		return nil, fmt.Errorf("failed to list storage policies: %w", err)
 	}
 
 	var filtered []cnpg.ClusterInfo
 	for _, cluster := range clusters {
-		key := fmt.Sprintf("%s/%s", cluster.Namespace, cluster.Name)
-		if !excludedSet[key] {
+		id := policy.ClusterIdentity{Namespace: cluster.Namespace, Name: cluster.Name, Labels: cluster.Labels}
+		selected, errs := policy.IsSelectedPolicy(policyObj, allPolicies.Items, id)
+		for _, e := range errs {
+			log.Error(e, "Skipping policy with invalid selector during policy selection", "cluster", cluster.Name, "namespace", cluster.Namespace)
+		}
+		if selected {
 			filtered = append(filtered, cluster)
 		}
 	}
