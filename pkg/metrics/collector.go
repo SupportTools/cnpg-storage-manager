@@ -387,6 +387,15 @@ func (c *Collector) CollectClusterMetrics(
 	return clusterMetrics, nil
 }
 
+// LastArchivedWALTime returns when the given CNPG instance pod last archived a WAL
+// segment (pg_stat_archiver), or an error if exec is unavailable.
+func (c *Collector) LastArchivedWALTime(ctx context.Context, namespace, podName string) (*time.Time, error) {
+	if c.execCollector == nil {
+		return nil, fmt.Errorf("exec collector not available")
+	}
+	return c.execCollector.LastArchivedWALTime(ctx, namespace, podName)
+}
+
 // ClusterMetrics contains aggregated metrics for a CNPG cluster
 type ClusterMetrics struct {
 	ClusterName        string

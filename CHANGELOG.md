@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Local-path / hostPath usage** (cluster-services-1381): kubelet has no volume stats for these
+  volumes, and the exec fallback's `df` measured the whole node filesystem (every local-path
+  cluster on a1-ops-prd read the same 73.7% of ~1Ti). When the filesystem under the mount is more
+  than 10% larger than the PVC, usage is now `du -sx` of the volume's own directory against the
+  PVC size.
+- **Recovery-point check was inverted**: it alerted when the FIRST recoverability point (the start
+  of the retention window, ~= retention) was older than `maxRecoveryPointAgeHours`, so it fired
+  for every healthy cluster. It now checks the LATEST recoverable point: the later of the last
+  archived WAL (`status.lastArchivedWALTime`, or `pg_stat_archiver` on the primary for
+  barman-cloud plugin clusters) and the last successful backup. New status fields
+  `lastArchivedWALTime` and `lastRecoverablePoint`; apply the updated CRD.
+- **Alertmanager flapping**: alerts now carry `endsAt = now + 15m` (3x the 5m resend window), so
+  they no longer resolve at Alertmanager's 5m `resolve_timeout` just before the next send.
+  Drifting details (`usage_percent`, `issue_N`, `issue_count`) are annotations instead of labels,
+  so an alert keeps one fingerprint; `threshold`, `alert_type` and `policy` stay labels. Storage
+  alerts carry `alert_type=storage`, and storage and backup alerts of equal severity no longer
+  suppress each other.
+- **Suppressed alerts were logged as sent**: `SendAlert` returns `ErrAlertSuppressed` for them,
+  and a send that no channel accepted is no longer suppressed (it is retried next reconcile).
+- **New metric** `cnpg_storage_manager_alerts_failed_total{cluster,namespace,severity,channel}`.
+
 - **Deterministic policy selection**: a cluster matched by several StoragePolicies was processed
   by every one of them, and its `policy-name` annotation flipped between them on each reconcile.
   Each cluster is now managed by one policy only: highest `spec.priority`, then the most specific

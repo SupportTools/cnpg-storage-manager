@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -66,6 +67,14 @@ type StoragePolicyReconciler struct {
 	expansionEngine  *remediation.ExpansionEngine
 	walCleanupEngine *remediation.WALCleanupEngine
 	alertManagers    map[string]*alerting.AlertManager // per-policy alert managers
+	// walArchiveProber reads pg_stat_archiver on a primary when the CNPG cluster
+	// status has no lastArchivedWALTime (barman-cloud plugin clusters). nil = skip.
+	walArchiveProber WALArchiveProber
+}
+
+// WALArchiveProber reports when a CNPG instance last archived a WAL segment.
+type WALArchiveProber interface {
+	LastArchivedWALTime(ctx context.Context, namespace, podName string) (*time.Time, error)
 }
 
 // RBAC for StoragePolicy management
@@ -236,6 +245,9 @@ func (r *StoragePolicyReconciler) initComponents() {
 	}
 	if r.metricsCollector == nil && r.RestConfig != nil {
 		r.metricsCollector = metrics.NewCollector(r.Client, r.RestConfig)
+	}
+	if r.walArchiveProber == nil && r.metricsCollector != nil {
+		r.walArchiveProber = r.metricsCollector
 	}
 	if r.evaluator == nil {
 		r.evaluator = policy.NewEvaluator()
@@ -732,15 +744,20 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 		Severity:         severity,
 		Message:          evalResult.ThresholdResult.Message,
 		Details: map[string]string{
-			"usage_percent": fmt.Sprintf("%.1f", evalResult.ThresholdResult.CurrentUsagePercent),
-			"threshold":     string(evalResult.ThresholdResult.Level),
-			"policy":        policyObj.Name,
+			"usage_percent":          fmt.Sprintf("%.1f", evalResult.ThresholdResult.CurrentUsagePercent),
+			alerting.DetailThreshold: string(evalResult.ThresholdResult.Level),
+			alerting.DetailPolicy:    policyObj.Name,
+			alerting.DetailAlertType: alerting.AlertTypeStorage,
 		},
 		Timestamp: time.Now(),
 	}
 
 	// Send alert
 	if err := am.SendAlert(ctx, alert); err != nil {
+		if stderrors.Is(err, alerting.ErrAlertSuppressed) {
+			log.V(1).Info("Alert suppressed (sent recently)", "cluster", cluster.Name, "severity", severity)
+			return nil
+		}
 		log.Error(err, "Failed to send alert", "cluster", cluster.Name, "severity", severity)
 		return err
 	}
@@ -842,30 +859,40 @@ func (r *StoragePolicyReconciler) evaluateBackupStatus(
 			"cluster", cluster.Name, "namespace", cluster.Namespace)
 	}
 
-	// Check first recoverability point
+	// First recoverability point: informational only. It is the START of the retention
+	// window, so its age ~= the retention period and is no measure of health
+	// (cluster-services-1381: alerting on it fired for every healthy cluster).
 	if firstRecoverabilityPoint != nil {
 		t := metav1.NewTime(*firstRecoverabilityPoint)
 		status.FirstRecoverabilityPoint = &t
-		recoverabilityAge := now.Sub(*firstRecoverabilityPoint)
-
-		// Record metrics
 		ts := float64(firstRecoverabilityPoint.Unix())
 		metrics.RecordBackupMetrics(cluster.Name, cluster.Namespace, nil, &ts,
 			cluster.Status.ContinuousArchivingWorking, cluster.Status.BackupConfigured, healthy)
-		metrics.RecordFirstRecoverabilityAge(cluster.Name, cluster.Namespace, recoverabilityAge.Hours())
+		metrics.RecordFirstRecoverabilityAge(cluster.Name, cluster.Namespace, now.Sub(*firstRecoverabilityPoint).Hours())
+	}
 
-		// Check if first recoverability point is too old
-		ageHours := int32(recoverabilityAge.Hours())
-		if config.MaxRecoveryPointAgeHours > 0 && ageHours > config.MaxRecoveryPointAgeHours {
+	// Latest recovery point: the newer of the last archived WAL and the last successful
+	// backup. Its age is how much data a restore would lose right now.
+	lastArchivedWAL := r.lastArchivedWALTime(ctx, cluster)
+	if lastArchivedWAL != nil {
+		t := metav1.NewTime(*lastArchivedWAL)
+		status.LastArchivedWALTime = &t
+	}
+	if point, ageHours, tooOld := checkLatestRecoveryPoint(now, lastSuccessfulBackup, lastArchivedWAL,
+		config.MaxRecoveryPointAgeHours); point != nil {
+		t := metav1.NewTime(*point)
+		status.LastRecoverablePoint = &t
+		metrics.RecordLastRecoverablePointAge(cluster.Name, cluster.Namespace, now.Sub(*point).Hours())
+		if tooOld {
 			healthy = false
 			if status.BackupHealthStatus == "Healthy" {
 				status.BackupHealthStatus = "RecoveryPointTooOld"
 			}
 			alertReasons = append(alertReasons, fmt.Sprintf(
-				"first recovery point is %d hours old (max: %d)",
+				"latest recovery point is %d hours old (max: %d)",
 				ageHours, config.MaxRecoveryPointAgeHours))
 			metrics.RecordBackupAlert(cluster.Name, cluster.Namespace, "recovery_point_too_old")
-			log.Info("Cluster recovery point is too old",
+			log.Info("Cluster latest recovery point is too old",
 				"cluster", cluster.Name, "namespace", cluster.Namespace,
 				"ageHours", ageHours, "maxHours", config.MaxRecoveryPointAgeHours)
 		}
@@ -908,6 +935,41 @@ func (r *StoragePolicyReconciler) evaluateBackupStatus(
 	return status
 }
 
+// lastArchivedWALTime returns when the cluster last archived a WAL segment: the CNPG
+// status field when present (in-tree barmanObjectStore), otherwise pg_stat_archiver on
+// the current primary. nil when unknown.
+func (r *StoragePolicyReconciler) lastArchivedWALTime(ctx context.Context, cluster cnpg.ClusterInfo) *time.Time {
+	if cluster.Status.LastArchivedWALTime != nil {
+		return cluster.Status.LastArchivedWALTime
+	}
+	if r.walArchiveProber == nil || cluster.Status.CurrentPrimary == "" {
+		return nil
+	}
+	t, err := r.walArchiveProber.LastArchivedWALTime(ctx, cluster.Namespace, cluster.Status.CurrentPrimary)
+	if err != nil {
+		logf.FromContext(ctx).V(1).Info("Could not read pg_stat_archiver; using last backup only",
+			"cluster", cluster.Name, "namespace", cluster.Namespace, "error", err.Error())
+		metrics.RecordError("pg_stat_archiver", cluster.Name, cluster.Namespace)
+		return nil
+	}
+	return t
+}
+
+// checkLatestRecoveryPoint picks the newest recoverable point (the later of the last
+// successful backup and the last archived WAL) and reports whether it is older than
+// maxHours. point is nil when neither is known; maxHours <= 0 never reports tooOld.
+func checkLatestRecoveryPoint(now time.Time, lastBackup, lastArchivedWAL *time.Time, maxHours int32) (point *time.Time, ageHours int32, tooOld bool) {
+	point = lastBackup
+	if lastArchivedWAL != nil && (point == nil || lastArchivedWAL.After(*point)) {
+		point = lastArchivedWAL
+	}
+	if point == nil {
+		return nil, 0, false
+	}
+	ageHours = int32(now.Sub(*point).Hours())
+	return point, ageHours, maxHours > 0 && ageHours > maxHours
+}
+
 // sendBackupAlert sends an alert for backup issues
 func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo, reasons []string) {
 	log := logf.FromContext(ctx)
@@ -942,9 +1004,9 @@ func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj
 		Severity:         severity,
 		Message:          message,
 		Details: map[string]string{
-			"alert_type":  "backup",
-			"policy":      policyObj.Name,
-			"issue_count": fmt.Sprintf("%d", len(reasons)),
+			alerting.DetailAlertType: alerting.AlertTypeBackup,
+			alerting.DetailPolicy:    policyObj.Name,
+			"issue_count":            fmt.Sprintf("%d", len(reasons)),
 		},
 		Timestamp: time.Now(),
 	}
@@ -956,6 +1018,10 @@ func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj
 
 	// Send alert
 	if err := am.SendAlert(ctx, alert); err != nil {
+		if stderrors.Is(err, alerting.ErrAlertSuppressed) {
+			log.V(1).Info("Backup alert suppressed (sent recently)", "cluster", cluster.Name, "severity", severity)
+			return
+		}
 		log.Error(err, "Failed to send backup alert", "cluster", cluster.Name, "severity", severity)
 		return
 	}

@@ -223,7 +223,11 @@ type BackupMonitoringConfig struct {
 	// +optional
 	RequireContinuousArchiving bool `json:"requireContinuousArchiving,omitempty"`
 
-	// MaxRecoveryPointAgeHours is the maximum age of the first recovery point before alerting
+	// MaxRecoveryPointAgeHours is the maximum age of the LATEST recovery point before
+	// alerting: the newer of the last archived WAL segment and the last successful
+	// backup. It bounds how much data a restore would lose. (Before cluster-services-1381
+	// it was compared against the FIRST recoverability point, the start of the retention
+	// window, whose age is ~= retention and therefore always "too old".)
 	// Set to 0 to disable recovery point age monitoring
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=168
@@ -322,6 +326,16 @@ type ClusterBackupStatus struct {
 	// FirstRecoverabilityPoint is the timestamp of the oldest recoverable point
 	// +optional
 	FirstRecoverabilityPoint *metav1.Time `json:"firstRecoverabilityPoint,omitempty"`
+
+	// LastArchivedWALTime is when the last WAL segment was archived, from the CNPG
+	// cluster status or the primary's pg_stat_archiver
+	// +optional
+	LastArchivedWALTime *metav1.Time `json:"lastArchivedWALTime,omitempty"`
+
+	// LastRecoverablePoint is the newest point a restore can reach: the later of
+	// LastArchivedWALTime and LastBackupTime
+	// +optional
+	LastRecoverablePoint *metav1.Time `json:"lastRecoverablePoint,omitempty"`
 
 	// ContinuousArchivingWorking indicates if WAL archiving is functioning
 	// +optional
