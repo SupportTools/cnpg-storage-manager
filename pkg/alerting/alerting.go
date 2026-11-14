@@ -62,15 +62,29 @@ const AlertmanagerEndsAtTTL = 3 * SuppressionWindow
 // callers should check for it with errors.Is and must not log the alert as sent.
 var ErrAlertSuppressed = errors.New("alert suppressed: identical alert sent recently")
 
+// Details keys and values with a fixed meaning.
+const (
+	// DetailThreshold is the threshold level that fired (storage alerts)
+	DetailThreshold = "threshold"
+	// DetailAlertType is the kind of alert: AlertTypeStorage or AlertTypeBackup
+	DetailAlertType = "alert_type"
+	// DetailPolicy is the StoragePolicy that produced the alert
+	DetailPolicy = "policy"
+	// AlertTypeStorage marks storage threshold alerts
+	AlertTypeStorage = "storage"
+	// AlertTypeBackup marks backup/archiving alerts
+	AlertTypeBackup = "backup"
+)
+
 // alertmanagerLabelKeys are the Details keys that are stable for the lifetime of an
 // alert condition and therefore safe as Alertmanager labels. Every other Details key
 // (usage_percent, issue_N, ...) carries values that drift from one send to the next;
 // as labels they change the alert fingerprint, so Alertmanager would see a new alert
 // on every drift. Those go into annotations instead.
 var alertmanagerLabelKeys = map[string]bool{
-	"threshold":  true,
-	"alert_type": true,
-	"policy":     true,
+	DetailThreshold: true,
+	DetailAlertType: true,
+	DetailPolicy:    true,
 }
 
 // AlertSeverity defines the severity of an alert
@@ -416,7 +430,7 @@ func (m *AlertManager) isSuppressed(alert *Alert) bool {
 // storage alert and a backup alert of equal severity do not suppress each other.
 func suppressionKey(alert *Alert) string {
 	return fmt.Sprintf("%s/%s/%s/%s",
-		alert.ClusterNamespace, alert.ClusterName, alert.Severity, alert.Details["alert_type"])
+		alert.ClusterNamespace, alert.ClusterName, alert.Severity, alert.Details[DetailAlertType])
 }
 
 // addSuppression adds an alert to the suppression map

@@ -73,9 +73,9 @@ func TestAlertmanagerPayload_DriftingDetailsAreAnnotations(t *testing.T) {
 		ClusterName: "c1", ClusterNamespace: "ns1", Severity: AlertSeverityWarning,
 		Message: "backup", Timestamp: time.Now(),
 		Details: map[string]string{
-			"alert_type":    "backup",
-			"policy":        "default-postgres",
-			"threshold":     "warning",
+			DetailAlertType: AlertTypeBackup,
+			DetailPolicy:    "default-postgres",
+			DetailThreshold: "warning",
 			"usage_percent": "73.7",
 			"issue_1":       "last backup is 25 hours old (max: 24)",
 			"issue_count":   "1",
@@ -87,7 +87,8 @@ func TestAlertmanagerPayload_DriftingDetailsAreAnnotations(t *testing.T) {
 	labels := (*payload)[0]["labels"].(map[string]interface{})
 	annotations := (*payload)[0]["annotations"].(map[string]interface{})
 
-	for _, k := range []string{"alert_type", "policy", "threshold", "alertname", "cluster", "namespace", "severity"} {
+	identity := []string{DetailAlertType, DetailPolicy, DetailThreshold, "alertname", "cluster", "namespace", "severity"}
+	for _, k := range identity {
 		if _, ok := labels[k]; !ok {
 			t.Errorf("label %q missing", k)
 		}
@@ -105,9 +106,11 @@ func TestAlertmanagerPayload_DriftingDetailsAreAnnotations(t *testing.T) {
 // Two sends whose drifting details differ must carry identical label sets.
 func TestAlertmanagerPayload_LabelsStableAcrossDrift(t *testing.T) {
 	a1 := &Alert{ClusterName: "c", ClusterNamespace: "n", Severity: AlertSeverityCritical,
-		Details: map[string]string{"usage_percent": "80.1", "threshold": "critical", "policy": "p", "alert_type": "storage"}}
+		Details: map[string]string{"usage_percent": "80.1", DetailThreshold: string(AlertSeverityCritical),
+			DetailPolicy: "p", DetailAlertType: AlertTypeStorage}}
 	a2 := &Alert{ClusterName: "c", ClusterNamespace: "n", Severity: AlertSeverityCritical,
-		Details: map[string]string{"usage_percent": "81.9", "threshold": "critical", "policy": "p", "alert_type": "storage"}}
+		Details: map[string]string{"usage_percent": "81.9", DetailThreshold: string(AlertSeverityCritical),
+			DetailPolicy: "p", DetailAlertType: AlertTypeStorage}}
 	l1, _ := alertmanagerLabelsAndAnnotations(a1)
 	l2, _ := alertmanagerLabelsAndAnnotations(a2)
 	if len(l1) != len(l2) {
@@ -186,7 +189,7 @@ func TestSendAlert_FailureCountedAndNotSuppressed(t *testing.T) {
 	m := newTestManager(t, srv.URL)
 	alert := &Alert{ClusterName: "fail-1381", ClusterNamespace: "n", Severity: AlertSeverityCritical, Message: "x"}
 
-	failed := metrics.AlertsFailedTotal.WithLabelValues("fail-1381", "n", "critical", "alertmanager")
+	failed := metrics.AlertsFailedTotal.WithLabelValues("fail-1381", "n", string(AlertSeverityCritical), "alertmanager")
 	before := testutil.ToFloat64(failed)
 
 	err := m.SendAlert(context.Background(), alert)
@@ -211,9 +214,9 @@ func TestSendAlert_DifferentAlertTypesNotSuppressedTogether(t *testing.T) {
 	srv, _, calls := captureAlertmanager(t, http.StatusOK)
 	m := newTestManager(t, srv.URL)
 	storage := &Alert{ClusterName: "c", ClusterNamespace: "n", Severity: AlertSeverityWarning,
-		Details: map[string]string{"alert_type": "storage"}}
+		Details: map[string]string{DetailAlertType: AlertTypeStorage}}
 	backup := &Alert{ClusterName: "c", ClusterNamespace: "n", Severity: AlertSeverityWarning,
-		Details: map[string]string{"alert_type": "backup"}}
+		Details: map[string]string{DetailAlertType: AlertTypeBackup}}
 	if err := m.SendAlert(context.Background(), storage); err != nil {
 		t.Fatal(err)
 	}

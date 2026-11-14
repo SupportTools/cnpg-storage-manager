@@ -744,10 +744,10 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 		Severity:         severity,
 		Message:          evalResult.ThresholdResult.Message,
 		Details: map[string]string{
-			"usage_percent": fmt.Sprintf("%.1f", evalResult.ThresholdResult.CurrentUsagePercent),
-			"threshold":     string(evalResult.ThresholdResult.Level),
-			"policy":        policyObj.Name,
-			"alert_type":    "storage",
+			"usage_percent":          fmt.Sprintf("%.1f", evalResult.ThresholdResult.CurrentUsagePercent),
+			alerting.DetailThreshold: string(evalResult.ThresholdResult.Level),
+			alerting.DetailPolicy:    policyObj.Name,
+			alerting.DetailAlertType: alerting.AlertTypeStorage,
 		},
 		Timestamp: time.Now(),
 	}
@@ -1004,9 +1004,9 @@ func (r *StoragePolicyReconciler) sendBackupAlert(ctx context.Context, policyObj
 		Severity:         severity,
 		Message:          message,
 		Details: map[string]string{
-			"alert_type":  "backup",
-			"policy":      policyObj.Name,
-			"issue_count": fmt.Sprintf("%d", len(reasons)),
+			alerting.DetailAlertType: alerting.AlertTypeBackup,
+			alerting.DetailPolicy:    policyObj.Name,
+			"issue_count":            fmt.Sprintf("%d", len(reasons)),
 		},
 		Timestamp: time.Now(),
 	}
