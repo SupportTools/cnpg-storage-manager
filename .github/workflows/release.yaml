@@ -90,10 +90,14 @@ jobs:
       - name: Generate manifests
         run: |
           make manifests generate
+          # kustomize is not baked into the runner image: the Makefile installs the pinned
+          # KUSTOMIZE_VERSION into ./bin (Go module proxy, checksummed by sumdb). The bare
+          # `kustomize` call failed the v0.2.0 release (exit 127, cluster-services-1381).
+          make kustomize
+          KUSTOMIZE="$PWD/bin/kustomize"
           # Create install manifest
-          cd config/manager && kustomize edit set image controller=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-          cd ../..
-          kustomize build config/default > install.yaml
+          (cd config/manager && "$KUSTOMIZE" edit set image controller=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }})
+          "$KUSTOMIZE" build config/default > install.yaml
 
       - name: Generate changelog
         id: changelog
