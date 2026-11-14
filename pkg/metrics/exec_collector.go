@@ -219,16 +219,28 @@ func PVCProvisionedBytes(pvc *corev1.PersistentVolumeClaim) int64 {
 }
 
 // execDuInPod returns the bytes used by the directory tree at path, staying on one
-// filesystem (-x) so other mounts below it are not counted.
+// filesystem (-x) so other mounts below it are not counted. It uses -k (KiB), not
+// GNU's -B1: BusyBox du in Alpine-based postgres images (e.g.
+// stackeyeio/timescaledb-barman) rejects -B ("unrecognized option: B"), while
+// -s -x -k work in both.
 func (e *ExecCollector) execDuInPod(ctx context.Context, pod corev1.Pod, path string) (int64, error) {
-	stdout, _, err := e.execInPod(ctx, pod, []string{"du", "-sxB1", path})
+	stdout, _, err := e.execInPod(ctx, pod, DuCommand(path))
 	if err != nil {
 		return 0, err
 	}
-	return ParseDuOutput(stdout)
+	kib, err := ParseDuOutput(stdout)
+	if err != nil {
+		return 0, err
+	}
+	return kib * 1024, nil
 }
 
-// ParseDuOutput parses `du -sB1 <path>` output ("<bytes>\t<path>").
+// DuCommand is the portable (GNU and BusyBox) du invocation; output is in KiB.
+func DuCommand(path string) []string {
+	return []string{"du", "-sxk", path}
+}
+
+// ParseDuOutput parses the first field of `du -s <path>` output ("<n>\t<path>").
 func ParseDuOutput(output string) (int64, error) {
 	fields := strings.Fields(strings.TrimSpace(output))
 	if len(fields) == 0 {
