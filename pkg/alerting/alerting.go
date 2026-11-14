@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -42,6 +43,49 @@ const (
 	keyShort         = "short"
 	defaultNamespace = "default"
 )
+
+// SuppressionWindow is how long an identical alert (same cluster and severity) is
+// not re-sent after a successful send.
+const SuppressionWindow = 5 * time.Minute
+
+// AlertmanagerEndsAtTTL is how far in the future an Alertmanager alert's endsAt is
+// set on every send. It must be comfortably longer than SuppressionWindow: the alert
+// is only re-sent once per window, and without an explicit endsAt Alertmanager
+// resolves it after its resolve_timeout (5m by default), i.e. exactly as the next
+// send is due, so the alert flaps resolved/firing (cluster-services-1381). Three
+// windows tolerate two missed sends; once the condition clears the alert resolves
+// on its own within this TTL.
+const AlertmanagerEndsAtTTL = 3 * SuppressionWindow
+
+// ErrAlertSuppressed is returned by SendAlert when the alert was not sent because an
+// identical alert was sent within SuppressionWindow. It is not a delivery failure;
+// callers should check for it with errors.Is and must not log the alert as sent.
+var ErrAlertSuppressed = errors.New("alert suppressed: identical alert sent recently")
+
+// Details keys and values with a fixed meaning.
+const (
+	// DetailThreshold is the threshold level that fired (storage alerts)
+	DetailThreshold = "threshold"
+	// DetailAlertType is the kind of alert: AlertTypeStorage or AlertTypeBackup
+	DetailAlertType = "alert_type"
+	// DetailPolicy is the StoragePolicy that produced the alert
+	DetailPolicy = "policy"
+	// AlertTypeStorage marks storage threshold alerts
+	AlertTypeStorage = "storage"
+	// AlertTypeBackup marks backup/archiving alerts
+	AlertTypeBackup = "backup"
+)
+
+// alertmanagerLabelKeys are the Details keys that are stable for the lifetime of an
+// alert condition and therefore safe as Alertmanager labels. Every other Details key
+// (usage_percent, issue_N, ...) carries values that drift from one send to the next;
+// as labels they change the alert fingerprint, so Alertmanager would see a new alert
+// on every drift. Those go into annotations instead.
+var alertmanagerLabelKeys = map[string]bool{
+	DetailThreshold: true,
+	DetailAlertType: true,
+	DetailPolicy:    true,
+}
 
 // AlertSeverity defines the severity of an alert
 type AlertSeverity string
@@ -72,6 +116,8 @@ type AlertManager struct {
 	channels        []cnpgv1alpha1.AlertChannel
 	suppressionMap  map[string]time.Time
 	suppressionLock sync.RWMutex
+	// now is the clock; replaced in tests.
+	now func() time.Time
 }
 
 // NewAlertManager creates a new alert manager
@@ -81,10 +127,16 @@ func NewAlertManager(c client.Client, channels []cnpgv1alpha1.AlertChannel) *Ale
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
 		channels:       channels,
 		suppressionMap: make(map[string]time.Time),
+		now:            time.Now,
 	}
 }
 
-// SendAlert sends an alert through all configured channels
+// SendAlert sends an alert through all configured channels.
+//
+// It returns ErrAlertSuppressed (check with errors.Is) when the alert was not sent
+// because an identical one went out within SuppressionWindow, an error wrapping the
+// last channel error when no channel accepted it, and nil only when at least one
+// channel accepted it. Every failed channel send increments alerts_failed_total.
 func (m *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 	logger := log.FromContext(ctx)
 
@@ -92,7 +144,7 @@ func (m *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 	if m.isSuppressed(alert) {
 		logger.V(1).Info("Alert suppressed", "cluster", alert.ClusterName, keySeverity, alert.Severity)
 		metrics.RecordAlertSuppressed(alert.ClusterName, alert.ClusterNamespace, "duplicate")
-		return nil
+		return ErrAlertSuppressed
 	}
 
 	var lastErr error
@@ -114,6 +166,7 @@ func (m *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 
 		if err != nil {
 			logger.Error(err, "Failed to send alert", "channel", channel.Type)
+			metrics.RecordAlertFailed(alert.ClusterName, alert.ClusterNamespace, string(alert.Severity), string(channel.Type))
 			lastErr = err
 		} else {
 			sentCount++
@@ -121,13 +174,15 @@ func (m *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 		}
 	}
 
-	// Add to suppression map
-	m.addSuppression(alert)
-
-	if sentCount == 0 && lastErr != nil {
-		return fmt.Errorf("failed to send alert through any channel: %w", lastErr)
+	if sentCount == 0 {
+		// Do not suppress: nothing was delivered, so the next reconcile retries.
+		if lastErr != nil {
+			return fmt.Errorf("failed to send alert through any channel: %w", lastErr)
+		}
+		return fmt.Errorf("no usable alert channel configured")
 	}
 
+	m.addSuppression(alert)
 	return nil
 }
 
@@ -137,27 +192,16 @@ func (m *AlertManager) sendToAlertmanager(ctx context.Context, alert *Alert, cha
 		return fmt.Errorf("alertmanager endpoint not configured")
 	}
 
+	labels, annotations := alertmanagerLabelsAndAnnotations(alert)
+	now := m.now()
 	alertPayload := []map[string]interface{}{
 		{
-			"labels": map[string]string{
-				"alertname": "CNPGStorageAlert",
-				"cluster":   alert.ClusterName,
-				"namespace": alert.ClusterNamespace,
-				keySeverity: string(alert.Severity),
-			},
-			"annotations": map[string]string{
-				"summary":     alert.Message,
-				"description": fmt.Sprintf("Storage alert for CNPG cluster %s/%s", alert.ClusterNamespace, alert.ClusterName),
-			},
+			"labels":       labels,
+			"annotations":  annotations,
+			"startsAt":     alertStart(alert, now).UTC().Format(time.RFC3339),
+			"endsAt":       now.Add(AlertmanagerEndsAtTTL).UTC().Format(time.RFC3339),
 			"generatorURL": fmt.Sprintf("http://cnpg-storage-manager/clusters/%s/%s", alert.ClusterNamespace, alert.ClusterName),
 		},
-	}
-
-	// Add custom details to labels
-	if labels, ok := alertPayload[0]["labels"].(map[string]string); ok {
-		for k, v := range alert.Details {
-			labels[k] = v
-		}
 	}
 
 	body, err := json.Marshal(alertPayload)
@@ -188,6 +232,37 @@ func (m *AlertManager) sendToAlertmanager(ctx context.Context, alert *Alert, cha
 	}
 
 	return nil
+}
+
+// alertStart is the alert's startsAt: its own timestamp when set, otherwise now.
+func alertStart(alert *Alert, now time.Time) time.Time {
+	if alert.Timestamp.IsZero() {
+		return now
+	}
+	return alert.Timestamp
+}
+
+// alertmanagerLabelsAndAnnotations splits an alert into Alertmanager labels (identity:
+// stable for the lifetime of the condition) and annotations (everything that drifts).
+func alertmanagerLabelsAndAnnotations(alert *Alert) (map[string]string, map[string]string) {
+	labels := map[string]string{
+		"alertname": "CNPGStorageAlert",
+		"cluster":   alert.ClusterName,
+		"namespace": alert.ClusterNamespace,
+		keySeverity: string(alert.Severity),
+	}
+	annotations := map[string]string{
+		"summary":     alert.Message,
+		"description": fmt.Sprintf("Storage alert for CNPG cluster %s/%s", alert.ClusterNamespace, alert.ClusterName),
+	}
+	for k, v := range alert.Details {
+		if alertmanagerLabelKeys[k] {
+			labels[k] = v
+			continue
+		}
+		annotations[k] = v
+	}
+	return labels, annotations
 }
 
 // sendToSlack sends an alert to Slack
@@ -341,14 +416,21 @@ func (m *AlertManager) isSuppressed(alert *Alert) bool {
 	m.suppressionLock.RLock()
 	defer m.suppressionLock.RUnlock()
 
-	key := fmt.Sprintf("%s/%s/%s", alert.ClusterNamespace, alert.ClusterName, alert.Severity)
+	key := suppressionKey(alert)
 	lastSent, ok := m.suppressionMap[key]
 	if !ok {
 		return false
 	}
 
-	// Suppress if sent within the last 5 minutes
-	return time.Since(lastSent) < 5*time.Minute
+	// Suppress if sent within the suppression window
+	return m.now().Sub(lastSent) < SuppressionWindow
+}
+
+// suppressionKey identifies "the same alert": cluster, severity and alert type, so a
+// storage alert and a backup alert of equal severity do not suppress each other.
+func suppressionKey(alert *Alert) string {
+	return fmt.Sprintf("%s/%s/%s/%s",
+		alert.ClusterNamespace, alert.ClusterName, alert.Severity, alert.Details[DetailAlertType])
 }
 
 // addSuppression adds an alert to the suppression map
@@ -356,8 +438,7 @@ func (m *AlertManager) addSuppression(alert *Alert) {
 	m.suppressionLock.Lock()
 	defer m.suppressionLock.Unlock()
 
-	key := fmt.Sprintf("%s/%s/%s", alert.ClusterNamespace, alert.ClusterName, alert.Severity)
-	m.suppressionMap[key] = time.Now()
+	m.suppressionMap[suppressionKey(alert)] = m.now()
 }
 
 // ClearSuppression clears suppression for a specific cluster

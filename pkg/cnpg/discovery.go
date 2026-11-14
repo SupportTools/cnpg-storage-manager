@@ -92,8 +92,12 @@ type ClusterStatus struct {
 	CurrentPrimary     string
 	CurrentPrimaryNode string
 	// Backup status fields
-	FirstRecoverabilityPoint   *time.Time
-	LastSuccessfulBackup       *time.Time
+	FirstRecoverabilityPoint *time.Time
+	LastSuccessfulBackup     *time.Time
+	// LastArchivedWALTime is status.lastArchivedWALTime. CNPG only fills it for the
+	// in-tree barmanObjectStore; with the barman-cloud plugin it stays empty and the
+	// controller asks the primary's pg_stat_archiver instead.
+	LastArchivedWALTime        *time.Time
 	ContinuousArchivingWorking bool
 	BackupConfigured           bool
 	// Barman-cloud plugin info (when using external ObjectStore)
@@ -257,6 +261,14 @@ func (d *Discovery) extractClusterInfo(cluster *unstructured.Unstructured) (Clus
 	if found && firstRecoverability != "" {
 		if t, err := time.Parse(time.RFC3339, firstRecoverability); err == nil {
 			info.Status.FirstRecoverabilityPoint = &t
+		}
+	}
+	lastArchivedWAL, found, _ := unstructured.NestedString(
+		cluster.Object, "status", "lastArchivedWALTime",
+	)
+	if found && lastArchivedWAL != "" {
+		if t, err := time.Parse(time.RFC3339, lastArchivedWAL); err == nil {
+			info.Status.LastArchivedWALTime = &t
 		}
 	}
 	lastBackup, found, _ := unstructured.NestedString(

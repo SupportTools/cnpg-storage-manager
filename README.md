@@ -267,6 +267,8 @@ The controller exposes Prometheus metrics on `:8080/metrics`:
 | `cnpg_storage_manager_expansion_total` | Total expansion operations |
 | `cnpg_storage_manager_wal_cleanup_total` | Total WAL cleanup operations |
 | `cnpg_storage_manager_alerts_sent_total` | Total alerts sent |
+| `cnpg_storage_manager_alerts_failed_total` | Alert sends a channel did not accept (alert on its rate: a broken endpoint is otherwise only log lines) |
+| `cnpg_storage_manager_backup_last_recoverable_point_age_hours` | Hours since the newest recoverable point (later of last archived WAL and last backup) |
 | `cnpg_storage_manager_circuit_breaker_open` | Circuit breaker state |
 | `cnpg_storage_manager_threshold_breaches_total` | Threshold breach count |
 

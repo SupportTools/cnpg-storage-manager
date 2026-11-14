@@ -133,7 +133,11 @@ spec:
                   maxRecoveryPointAgeHours:
                     default: 168
                     description: |-
-                      MaxRecoveryPointAgeHours is the maximum age of the first recovery point before alerting
+                      MaxRecoveryPointAgeHours is the maximum age of the LATEST recovery point before
+                      alerting: the newer of the last archived WAL segment and the last successful
+                      backup. It bounds how much data a restore would lose. (Before cluster-services-1381
+                      it was compared against the FIRST recoverability point, the start of the retention
+                      window, whose age is ~= retention and therefore always "too old".)
                       Set to 0 to disable recovery point age monitoring
                     format: int32
                     minimum: 0
@@ -439,6 +443,12 @@ spec:
                             the oldest recoverable point
                           format: date-time
                           type: string
+                        lastArchivedWALTime:
+                          description: |-
+                            LastArchivedWALTime is when the last WAL segment was archived, from the CNPG
+                            cluster status or the primary's pg_stat_archiver
+                          format: date-time
+                          type: string
                         lastBackupAgeHours:
                           description: LastBackupAgeHours is how many hours since
                             the last backup
@@ -447,6 +457,12 @@ spec:
                         lastBackupTime:
                           description: LastBackupTime is the timestamp of the last
                             successful backup
+                          format: date-time
+                          type: string
+                        lastRecoverablePoint:
+                          description: |-
+                            LastRecoverablePoint is the newest point a restore can reach: the later of
+                            LastArchivedWALTime and LastBackupTime
                           format: date-time
                           type: string
                       type: object
