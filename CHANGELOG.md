@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-14
+
+### Fixed
+
+- **local-path usage on Alpine/BusyBox images**: `du -B1` is GNU-only; BusyBox rejects it, so
+  clusters on Alpine-based postgres images (stackeye-dev/stg) were skipped with an exec error.
+  The operator now runs `du -sxk` (GNU and BusyBox) and converts KiB to bytes.
+
 ## [0.2.0] - 2026-11-14
 
 ### Fixed

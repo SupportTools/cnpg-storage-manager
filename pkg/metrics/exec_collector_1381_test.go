@@ -20,6 +20,7 @@ package metrics
 // as their own directory against the PVC size, not as the node filesystem.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -130,5 +131,20 @@ func TestParseArchiverEpoch(t *testing.T) {
 	}
 	if _, err := ParseArchiverEpoch("ERROR: x"); err == nil {
 		t.Error("garbage must error")
+	}
+}
+
+// BusyBox du (Alpine-based postgres images on a1-ops-prd) rejects GNU's -B; only
+// options both implementations accept may be used.
+func TestDuCommand_PortableToBusyBox(t *testing.T) {
+	cmd := DuCommand("/var/lib/postgresql/data")
+	for _, arg := range cmd[1 : len(cmd)-1] {
+		if strings.Contains(arg, "B") || strings.HasPrefix(arg, "--") {
+			t.Errorf("du arg %q is GNU-only; BusyBox rejects it", arg)
+		}
+	}
+	want := []string{"du", "-sxk", "/var/lib/postgresql/data"}
+	if strings.Join(cmd, " ") != strings.Join(want, " ") {
+		t.Errorf("DuCommand = %v, want %v", cmd, want)
 	}
 }
