@@ -25,6 +25,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -114,6 +115,29 @@ func (e *ExecCollector) CollectPVCMetricsViaExec(ctx context.Context, pods []cor
 				CollectedAt:    time.Now(),
 			}
 
+			// local-path / hostPath volumes are a directory on a shared node
+			// filesystem: df reports that whole filesystem, not the volume
+			// (cluster-services-1381: every local-path cluster read the same
+			// 73.7% of ~1Ti while the PVCs were 10-16Gi). When df's filesystem is
+			// larger than the PVC, measure the volume's own directory with du and
+			// compare it to the PVC size instead.
+			pvcCapacity := e.pvcCapacityBytes(ctx, pod.Namespace, pvcName)
+			if IsSharedFilesystem(dfStats.TotalBytes, pvcCapacity) {
+				used, duErr := e.execDuInPod(ctx, pod, mountPath)
+				if duErr != nil {
+					// Without du the only number is the node filesystem, which
+					// is exactly the false reading this branch exists to avoid.
+					logger.Error(duErr, "Failed to measure volume directory; skipping PVC",
+						"pod", pod.Name, "pvc", pvcName, "mountPath", mountPath)
+					RecordError("exec_du", pod.Namespace+"/"+pod.Name, pod.Spec.NodeName)
+					continue
+				}
+				ApplyDirectoryUsage(&metric, used, pvcCapacity, dfStats.AvailBytes)
+				logger.V(1).Info("Shared filesystem volume: usage measured with du against PVC size",
+					"pod", pod.Name, "pvc", pvcName, "used", used, "pvcCapacity", pvcCapacity,
+					"filesystemTotal", dfStats.TotalBytes)
+			}
+
 			// Get inode stats if possible
 			inodeStats, err := e.execDfInodesInPod(ctx, pod, mountPath)
 			if err == nil && inodeStats != nil {
@@ -135,6 +159,118 @@ func (e *ExecCollector) CollectPVCMetricsViaExec(ctx context.Context, pods []cor
 	}
 
 	return allMetrics, nil
+}
+
+// sharedFilesystemSlack is how much larger than the PVC the filesystem under its
+// mount may be before the volume is treated as a directory on a shared filesystem.
+// Real block volumes are formatted at (or a few percent under) the PVC size; a
+// filesystem 10% bigger is not this volume's own.
+const sharedFilesystemSlack = 1.10
+
+// IsSharedFilesystem reports whether a mount whose filesystem has fsTotalBytes is a
+// directory on a larger, shared filesystem (local-path, hostPath) rather than a volume
+// with its own filesystem. pvcCapacityBytes <= 0 (unknown) is never shared.
+func IsSharedFilesystem(fsTotalBytes, pvcCapacityBytes int64) bool {
+	if pvcCapacityBytes <= 0 || fsTotalBytes <= 0 {
+		return false
+	}
+	return float64(fsTotalBytes) > float64(pvcCapacityBytes)*sharedFilesystemSlack
+}
+
+// ApplyDirectoryUsage rewrites a df-based metric for a shared-filesystem volume: used
+// is the volume directory's own size, capacity the PVC size. Available is what is
+// left of the PVC, capped by what is actually free on the shared filesystem. Inode
+// figures belong to the shared filesystem and are cleared.
+func ApplyDirectoryUsage(metric *PVCMetrics, usedBytes, pvcCapacityBytes, fsAvailBytes int64) {
+	metric.UsedBytes = usedBytes
+	metric.CapacityBytes = pvcCapacityBytes
+	avail := pvcCapacityBytes - usedBytes
+	if avail < 0 {
+		avail = 0
+	}
+	if fsAvailBytes >= 0 && fsAvailBytes < avail {
+		avail = fsAvailBytes
+	}
+	metric.AvailableBytes = avail
+	metric.Inodes, metric.InodesUsed, metric.InodesFree = 0, 0, 0
+}
+
+// pvcCapacityBytes returns the PVC's provisioned size (status.capacity, falling back
+// to spec.resources.requests), or 0 if the PVC cannot be read.
+func (e *ExecCollector) pvcCapacityBytes(ctx context.Context, namespace, name string) int64 {
+	pvc, err := e.clientset.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		log.FromContext(ctx).V(1).Info("Could not read PVC for capacity", "pvc", namespace+"/"+name, "error", err.Error())
+		return 0
+	}
+	return PVCProvisionedBytes(pvc)
+}
+
+// PVCProvisionedBytes returns a PVC's provisioned size: status.capacity when bound,
+// otherwise spec.resources.requests. 0 when neither is set.
+func PVCProvisionedBytes(pvc *corev1.PersistentVolumeClaim) int64 {
+	if q, ok := pvc.Status.Capacity[corev1.ResourceStorage]; ok {
+		return q.Value()
+	}
+	if q, ok := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; ok {
+		return q.Value()
+	}
+	return 0
+}
+
+// execDuInPod returns the bytes used by the directory tree at path, staying on one
+// filesystem (-x) so other mounts below it are not counted.
+func (e *ExecCollector) execDuInPod(ctx context.Context, pod corev1.Pod, path string) (int64, error) {
+	stdout, _, err := e.execInPod(ctx, pod, []string{"du", "-sxB1", path})
+	if err != nil {
+		return 0, err
+	}
+	return ParseDuOutput(stdout)
+}
+
+// ParseDuOutput parses `du -sB1 <path>` output ("<bytes>\t<path>").
+func ParseDuOutput(output string) (int64, error) {
+	fields := strings.Fields(strings.TrimSpace(output))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("empty du output")
+	}
+	n, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("unparseable du output %q: %w", output, err)
+	}
+	return n, nil
+}
+
+// LastArchivedWALTime asks a CNPG instance's pg_stat_archiver when it last archived a
+// WAL segment. It returns nil, nil when the instance has never archived one.
+func (e *ExecCollector) LastArchivedWALTime(ctx context.Context, namespace, podName string) (*time.Time, error) {
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: namespace},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: postgresContainerName}}},
+	}
+	// Local socket as the container user (postgres): no password needed.
+	command := []string{"psql", "-tAXq", "-c",
+		"select coalesce(extract(epoch from last_archived_time)::bigint::text, '') from pg_stat_archiver"}
+	stdout, _, err := e.execInPod(ctx, pod, command)
+	if err != nil {
+		return nil, err
+	}
+	return ParseArchiverEpoch(stdout)
+}
+
+// ParseArchiverEpoch parses the epoch-seconds output of the pg_stat_archiver query.
+// Empty output means no WAL was ever archived (nil, nil).
+func ParseArchiverEpoch(output string) (*time.Time, error) {
+	v := strings.TrimSpace(output)
+	if v == "" {
+		return nil, nil
+	}
+	secs, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("unparseable pg_stat_archiver output %q: %w", output, err)
+	}
+	t := time.Unix(secs, 0).UTC()
+	return &t, nil
 }
 
 // getPVCVolumeMounts returns a map of PVC name to mount path for the pod

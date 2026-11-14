@@ -208,6 +208,18 @@ var (
 		[]string{labelCluster, labelNamespace, "severity", "channel"},
 	)
 
+	// AlertsFailedTotal tracks alert sends a channel did not accept (DNS failure,
+	// connection refused, non-2xx). Alert on its rate: without it a broken endpoint
+	// only shows up as log lines (cluster-services-1370/1381).
+	AlertsFailedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: MetricsNamespace,
+			Name:      "alerts_failed_total",
+			Help:      "Total number of alert sends that failed, per channel",
+		},
+		[]string{labelCluster, labelNamespace, "severity", "channel"},
+	)
+
 	// AlertsSuppressedTotal tracks suppressed alerts
 	AlertsSuppressedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -264,6 +276,17 @@ var (
 			Namespace: MetricsNamespace,
 			Name:      "backup_first_recoverability_age_hours",
 			Help:      "Hours since the first recoverability point",
+		},
+		[]string{labelCluster, labelNamespace},
+	)
+
+	// BackupLastRecoverablePointAgeHours tracks hours since the newest recoverable point
+	// (later of last archived WAL and last successful backup): the data-loss window.
+	BackupLastRecoverablePointAgeHours = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "backup_last_recoverable_point_age_hours",
+			Help:      "Hours since the newest recoverable point (later of last archived WAL and last successful backup)",
 		},
 		[]string{labelCluster, labelNamespace},
 	)
@@ -329,6 +352,7 @@ func init() {
 		WALFilesRemoved,
 		CircuitBreakerState,
 		AlertsSentTotal,
+		AlertsFailedTotal,
 		AlertsSuppressedTotal,
 		MetricsCollectionDuration,
 		// Backup metrics
@@ -336,6 +360,7 @@ func init() {
 		BackupLastSuccessAgeHours,
 		BackupFirstRecoverabilityTimestamp,
 		BackupFirstRecoverabilityAgeHours,
+		BackupLastRecoverablePointAgeHours,
 		BackupContinuousArchivingWorking,
 		BackupConfigured,
 		BackupHealthy,
@@ -395,6 +420,11 @@ func SetCircuitBreakerState(cluster, namespace string, open bool) {
 		value = 1.0
 	}
 	CircuitBreakerState.WithLabelValues(cluster, namespace).Set(value)
+}
+
+// RecordAlertFailed records an alert send that a channel did not accept
+func RecordAlertFailed(cluster, namespace, severity, channel string) {
+	AlertsFailedTotal.WithLabelValues(cluster, namespace, severity, channel).Inc()
 }
 
 // RecordAlertSent records an alert being sent
@@ -464,6 +494,11 @@ func RecordFirstRecoverabilityAge(cluster, namespace string, ageHours float64) {
 	BackupFirstRecoverabilityAgeHours.WithLabelValues(cluster, namespace).Set(ageHours)
 }
 
+// RecordLastRecoverablePointAge records the age of the newest recoverable point in hours
+func RecordLastRecoverablePointAge(cluster, namespace string, ageHours float64) {
+	BackupLastRecoverablePointAgeHours.WithLabelValues(cluster, namespace).Set(ageHours)
+}
+
 // RecordBackupAlert records a backup-related alert
 func RecordBackupAlert(cluster, namespace, alertType string) {
 	BackupAlertsTotal.WithLabelValues(cluster, namespace, alertType).Inc()
@@ -475,6 +510,7 @@ func DeleteBackupMetrics(cluster, namespace string) {
 	BackupLastSuccessAgeHours.DeleteLabelValues(cluster, namespace)
 	BackupFirstRecoverabilityTimestamp.DeleteLabelValues(cluster, namespace)
 	BackupFirstRecoverabilityAgeHours.DeleteLabelValues(cluster, namespace)
+	BackupLastRecoverablePointAgeHours.DeleteLabelValues(cluster, namespace)
 	BackupContinuousArchivingWorking.DeleteLabelValues(cluster, namespace)
 	BackupConfigured.DeleteLabelValues(cluster, namespace)
 	BackupHealthy.DeleteLabelValues(cluster, namespace)
