@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-14
+
 ### Fixed
 
 - **Local-path / hostPath usage** (cluster-services-1381): kubelet has no volume stats for these
@@ -29,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Suppressed alerts were logged as sent**: `SendAlert` returns `ErrAlertSuppressed` for them,
   and a send that no channel accepted is no longer suppressed (it is retried next reconcile).
 - **New metric** `cnpg_storage_manager_alerts_failed_total{cluster,namespace,severity,channel}`.
+- **Image CA bundle**: every eMudhra emSign root (C3, C1, G1; static-debian13 already drops ECC G3)
+  is stripped from the runtime image's CA bundle; the build fails if one survives.
 
 - **Deterministic policy selection**: a cluster matched by several StoragePolicies was processed
   by every one of them, and its `policy-name` annotation flipped between them on each reconcile.
