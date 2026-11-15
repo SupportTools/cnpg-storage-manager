@@ -466,6 +466,17 @@ spec:
                           format: date-time
                           type: string
                       type: object
+                    expansionMessage:
+                      description: ExpansionMessage says why expansion is not supported
+                        and what to do instead.
+                      type: string
+                    expansionSupported:
+                      description: |-
+                        ExpansionSupported is false when the cluster's PVCs cannot be expanded in place: the
+                        StorageClass has allowVolumeExpansion false or unset, or its provisioner never resizes
+                        (rancher.io/local-path). Auto-expansion is skipped for such clusters; grow them by
+                        rolling instance replacement instead. Unset when it could not be determined.
+                      type: boolean
                     lastChecked:
                       description: LastChecked is when the cluster was last evaluated
                       format: date-time

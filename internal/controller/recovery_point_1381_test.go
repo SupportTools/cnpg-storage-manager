@@ -201,7 +201,7 @@ func TestHandleAlert_SuppressedIsNotLoggedAsSent(t *testing.T) {
 		Level: policy.ThresholdLevelCritical, CurrentUsagePercent: 85}}
 
 	for i := 0; i < 3; i++ {
-		if err := r.handleAlert(ctx, p, cluster, res); err != nil {
+		if err := r.handleAlert(ctx, p, cluster, res, nil); err != nil {
 			t.Fatalf("handleAlert #%d: %v", i, err)
 		}
 	}

@@ -336,3 +336,22 @@ func TestMetricsRegistration(t *testing.T) {
 		}
 	}
 }
+
+func TestSetExpansionSupported(t *testing.T) {
+	SetExpansionSupported("c1", "ns1", map[[2]string]bool{
+		{"old-sc", "driver.longhorn.io"}: true,
+	})
+	SetExpansionSupported("c1", "ns1", map[[2]string]bool{
+		{"local-path-cnpg", "rancher.io/local-path"}: false,
+	})
+	g := ExpansionSupported.WithLabelValues("c1", "ns1", "local-path-cnpg", "rancher.io/local-path")
+	if got := testutil.ToFloat64(g); got != 0 {
+		t.Errorf("local-path expansion_supported = %v, want 0", got)
+	}
+	// The replaced class must be gone, not left at its last value.
+	n := testutil.CollectAndCount(ExpansionSupported, "cnpg_storage_manager_expansion_supported")
+	if n != 1 {
+		t.Errorf("want 1 expansion_supported series after replace, got %d", n)
+	}
+	ExpansionSupported.Reset()
+}

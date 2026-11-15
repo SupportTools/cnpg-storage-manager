@@ -311,6 +311,17 @@ type ManagedCluster struct {
 	// BackupStatus contains backup-related status information
 	// +optional
 	BackupStatus *ClusterBackupStatus `json:"backupStatus,omitempty"`
+
+	// ExpansionSupported is false when the cluster's PVCs cannot be expanded in place: the
+	// StorageClass has allowVolumeExpansion false or unset, or its provisioner never resizes
+	// (rancher.io/local-path). Auto-expansion is skipped for such clusters; grow them by
+	// rolling instance replacement instead. Unset when it could not be determined.
+	// +optional
+	ExpansionSupported *bool `json:"expansionSupported,omitempty"`
+
+	// ExpansionMessage says why expansion is not supported and what to do instead.
+	// +optional
+	ExpansionMessage string `json:"expansionMessage,omitempty"`
 }
 
 // ClusterBackupStatus contains backup and WAL archiving status for a cluster
