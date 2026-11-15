@@ -344,7 +344,8 @@ func TestSetExpansionSupported(t *testing.T) {
 	SetExpansionSupported("c1", "ns1", map[[2]string]bool{
 		{"local-path-cnpg", "rancher.io/local-path"}: false,
 	})
-	if got := testutil.ToFloat64(ExpansionSupported.WithLabelValues("c1", "ns1", "local-path-cnpg", "rancher.io/local-path")); got != 0 {
+	g := ExpansionSupported.WithLabelValues("c1", "ns1", "local-path-cnpg", "rancher.io/local-path")
+	if got := testutil.ToFloat64(g); got != 0 {
 		t.Errorf("local-path expansion_supported = %v, want 0", got)
 	}
 	// The replaced class must be gone, not left at its last value.

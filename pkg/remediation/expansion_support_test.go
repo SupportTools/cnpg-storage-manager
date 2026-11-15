@@ -100,8 +100,11 @@ func TestClusterExpansionSupport(t *testing.T) {
 			reason:    "allowVolumeExpansion false or unset",
 		},
 		{
-			name:      "one non-expandable class blocks the whole cluster",
-			classes:   []runtime.Object{sc("longhorn", "driver.longhorn.io", &yes), sc("local-path-cnpg", "rancher.io/local-path", &no)},
+			name: "one non-expandable class blocks the whole cluster",
+			classes: []runtime.Object{
+				sc("longhorn", "driver.longhorn.io", &yes),
+				sc("local-path-cnpg", "rancher.io/local-path", &no),
+			},
 			pvcs:      []corev1.PersistentVolumeClaim{boundPVC("db-1", "longhorn"), boundPVC("db-1-wal", "local-path-cnpg")},
 			supported: false,
 			reason:    "local-path-cnpg",

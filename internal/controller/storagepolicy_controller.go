@@ -20,6 +20,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -861,7 +862,7 @@ func addExpansionDetails(alert *alerting.Alert, expansion *remediation.Expansion
 	if expansion == nil || expansion.Supported {
 		return
 	}
-	alert.Details[alerting.DetailExpansionSupported] = "false"
+	alert.Details[alerting.DetailExpansionSupported] = strconv.FormatBool(false)
 	alert.Details[alerting.DetailExpansionBlocker] = expansion.Reason
 	alert.Details[alerting.DetailRemediation] = remediation.RollingReplaceRemediation
 	alert.Message += ". Auto-expansion is not possible (" + expansion.Reason + "): " + remediation.RollingReplaceRemediation

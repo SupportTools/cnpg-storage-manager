@@ -35,11 +35,12 @@ func localPathReconciler(t *testing.T, allow *bool) *StoragePolicyReconciler {
 	_ = corev1.AddToScheme(scheme)
 	_ = storagev1.AddToScheme(scheme)
 	class := "local-path-cnpg"
-	objs := []runtime.Object{&storagev1.StorageClass{
+	objs := make([]runtime.Object, 0, 3)
+	objs = append(objs, &storagev1.StorageClass{
 		ObjectMeta:           metav1.ObjectMeta{Name: class},
 		Provisioner:          "rancher.io/local-path",
 		AllowVolumeExpansion: allow,
-	}}
+	})
 	for _, n := range []string{"rack-control-db-1", "rack-control-db-2"} {
 		objs = append(objs, &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: "rack-control",
