@@ -70,6 +70,13 @@ const (
 	DetailAlertType = "alert_type"
 	// DetailPolicy is the StoragePolicy that produced the alert
 	DetailPolicy = "policy"
+	// DetailExpansionSupported is "false" on a storage alert for a cluster whose PVCs cannot be
+	// expanded in place (annotation; cluster-services-1413)
+	DetailExpansionSupported = "expansion_supported"
+	// DetailExpansionBlocker says why the cluster cannot be expanded in place (annotation)
+	DetailExpansionBlocker = "expansion_blocker"
+	// DetailRemediation is the operator action to take instead (annotation)
+	DetailRemediation = "remediation"
 	// AlertTypeStorage marks storage threshold alerts
 	AlertTypeStorage = "storage"
 	// AlertTypeBackup marks backup/archiving alerts

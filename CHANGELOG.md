@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-15
+
+### Added
+
+- **Non-expandable storage is detected and reported** (cluster-services-1413). A cluster whose
+  PVCs sit on a StorageClass with `allowVolumeExpansion` false or unset, or on a provisioner that
+  never resizes (`rancher.io/local-path`, `kubernetes.io/no-provisioner`, even when the class says
+  `allowVolumeExpansion: true`), is never auto-expanded. It is surfaced as:
+  - `status.managedClusters[].expansionSupported: false` + `expansionMessage`, and a policy
+    condition `ExpansionSupported=False` (reason `StorageClassCannotExpand`) naming the clusters;
+  - the gauge `cnpg_storage_manager_expansion_supported{cluster,namespace,storage_class,provisioner}`
+    (0 = cannot expand in place);
+  - a log line when a cluster's verdict changes;
+  - on storage alerts, the annotations `expansion_supported=false`, `expansion_blocker` and
+    `remediation` (grow the cluster by rolling instance replacement). Labels are unchanged.
+  An expansion that comes due on such a cluster sets status `ExpansionUnsupported` and alerts.
+  StorageClass lookups are cached for 5 minutes, so a class change is seen without a restart.
+
+### Changed
+
+- **Base images through the Harbor proxy, pinned by digest** (cluster-services-1401): golang via
+  `harbor.support.tools/dockerhub`, distroless via `harbor.support.tools/gcr`, both index digests;
+  Go modules through `goproxy.support.tools` with proxy.golang.org as fallback. The image CA
+  bundle still has 145 certs, 0 emSign.
+
 ## [0.2.1] - 2026-11-14
 
 ### Fixed

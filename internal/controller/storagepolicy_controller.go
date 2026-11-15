@@ -21,6 +21,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -70,6 +71,9 @@ type StoragePolicyReconciler struct {
 	// walArchiveProber reads pg_stat_archiver on a primary when the CNPG cluster
 	// status has no lastArchivedWALTime (barman-cloud plugin clusters). nil = skip.
 	walArchiveProber WALArchiveProber
+	// expansionSupportSeen remembers the last expansion verdict per cluster, so the
+	// "cannot expand" log line is written when the verdict changes, not every 30s.
+	expansionSupportSeen sync.Map
 }
 
 // WALArchiveProber reports when a CNPG instance last archived a WAL segment.
@@ -220,6 +224,7 @@ func (r *StoragePolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.setCondition(&policyObj, "Ready", metav1.ConditionTrue, "ReconcileSucceeded",
 			fmt.Sprintf("Successfully processed %d clusters", reconciledCount))
 	}
+	r.setExpansionCondition(&policyObj, managedClusters)
 
 	if err := r.Status().Update(ctx, &policyObj); err != nil {
 		log.Error(err, "Failed to update status")
@@ -452,6 +457,10 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 		metrics.RecordThresholdBreach(cluster.Name, cluster.Namespace, string(evalResult.ThresholdResult.Level))
 	}
 
+	// Can this cluster's storage be expanded in place at all? (cluster-services-1413)
+	expansion := r.expansionSupport(ctx, cluster)
+	expansionBlocked := expansion != nil && !expansion.Supported
+
 	// Process recommended actions
 	//nolint:goconst // "Healthy" is a descriptive status string, not a constant
 	status := "Healthy"
@@ -461,7 +470,17 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 			switch action.Action {
 			case policy.ActionTypeExpand:
 				dryRun := r.isDryRun(policyObj)
-				if !dryRun {
+				if expansionBlocked {
+					// Never raise a PVC request the storage cannot honour: on local-path it
+					// would sit at ExternalExpanding forever. Tell the operator instead.
+					log.Info("Skipping auto-expand: storage cannot be expanded in place",
+						"cluster", cluster.Name, "namespace", cluster.Namespace,
+						"reason", expansion.Reason, "remediation", remediation.RollingReplaceRemediation)
+					status = statusExpansionUnsupported
+					if err := r.handleAlert(ctx, policyObj, cluster, evalResult, expansion); err != nil {
+						log.Error(err, "Failed to send alert", "cluster", cluster.Name)
+					}
+				} else if !dryRun {
 					if err := r.handleExpansion(ctx, policyObj, cluster, evalResult, clusterAnnotations); err != nil {
 						log.Error(err, "Expansion failed", "cluster", cluster.Name)
 						status = "ExpansionFailed"
@@ -490,7 +509,7 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 			case policy.ActionTypeAlert:
 				// Send alert if not suppressed during remediation
 				if !policyObj.Spec.Alerting.SuppressDuringRemediation || status == "Healthy" {
-					if err := r.handleAlert(ctx, policyObj, cluster, evalResult); err != nil {
+					if err := r.handleAlert(ctx, policyObj, cluster, evalResult, expansion); err != nil {
 						log.Error(err, "Failed to send alert", "cluster", cluster.Name)
 					}
 				}
@@ -518,14 +537,82 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 		backupStatus = r.evaluateBackupStatus(ctx, policyObj, cluster)
 	}
 
-	return &cnpgv1alpha1.ManagedCluster{
+	managed := &cnpgv1alpha1.ManagedCluster{
 		Name:         cluster.Name,
 		Namespace:    cluster.Namespace,
 		LastChecked:  metav1.Now(),
 		UsagePercent: int32(usagePercent),
 		Status:       status,
 		BackupStatus: backupStatus,
-	}, nil
+	}
+	if expansion != nil {
+		supported := expansion.Supported
+		managed.ExpansionSupported = &supported
+		if !supported {
+			managed.ExpansionMessage = expansion.Reason + ". " + remediation.RollingReplaceRemediation
+		}
+	}
+	return managed, nil
+}
+
+// statusExpansionUnsupported is the ManagedCluster status when an expansion was due but the
+// cluster's storage cannot be expanded in place.
+const statusExpansionUnsupported = "ExpansionUnsupported"
+
+// expansionSupport works out whether the cluster's PVCs can be expanded in place, records the
+// expansion_supported gauge, and logs when the verdict changes. nil = could not be determined.
+func (r *StoragePolicyReconciler) expansionSupport(ctx context.Context, cluster cnpg.ClusterInfo) *remediation.ExpansionSupport {
+	log := logf.FromContext(ctx)
+	if r.expansionEngine == nil || r.discovery == nil {
+		return nil
+	}
+	pvcs, err := r.discovery.GetClusterPVCs(ctx, cluster.Name, cluster.Namespace)
+	if err != nil {
+		log.Error(err, "Failed to list PVCs for the expansion check", "cluster", cluster.Name)
+		return nil
+	}
+	support, err := r.expansionEngine.ClusterExpansionSupport(ctx, pvcs)
+	if err != nil {
+		log.Error(err, "Failed to check storage class expansion support", "cluster", cluster.Name)
+		return nil
+	}
+
+	series := make(map[[2]string]bool, len(support.StorageClasses))
+	for _, sc := range support.StorageClasses {
+		series[[2]string{sc.StorageClass, sc.Provisioner}] = sc.Supported
+	}
+	metrics.SetExpansionSupported(cluster.Name, cluster.Namespace, series)
+
+	key := cluster.Namespace + "/" + cluster.Name
+	if prev, ok := r.expansionSupportSeen.Swap(key, support.Supported); !ok || prev.(bool) != support.Supported {
+		if support.Supported {
+			log.Info("Cluster storage can be expanded in place", "cluster", cluster.Name, "namespace", cluster.Namespace)
+		} else {
+			log.Info("Cluster storage cannot be expanded in place; auto-expansion will be skipped",
+				"cluster", cluster.Name, "namespace", cluster.Namespace,
+				"reason", support.Reason, "remediation", remediation.RollingReplaceRemediation)
+		}
+	}
+	return support
+}
+
+// setExpansionCondition sets the ExpansionSupported condition on the policy: False when any
+// managed cluster's storage cannot be expanded in place, naming those clusters.
+func (r *StoragePolicyReconciler) setExpansionCondition(policyObj *cnpgv1alpha1.StoragePolicy, managed []cnpgv1alpha1.ManagedCluster) {
+	var blocked []string
+	for _, mc := range managed {
+		if mc.ExpansionSupported != nil && !*mc.ExpansionSupported {
+			blocked = append(blocked, mc.Namespace+"/"+mc.Name)
+		}
+	}
+	if len(blocked) == 0 {
+		r.setCondition(policyObj, "ExpansionSupported", metav1.ConditionTrue, "AllClustersExpandable",
+			"Every managed cluster's storage can be expanded in place")
+		return
+	}
+	r.setCondition(policyObj, "ExpansionSupported", metav1.ConditionFalse, "StorageClassCannotExpand",
+		fmt.Sprintf("%d cluster(s) cannot be expanded in place and are skipped by auto-expansion: %s. %s",
+			len(blocked), strings.Join(blocked, ", "), remediation.RollingReplaceRemediation))
 }
 
 // handleExpansion handles PVC expansion for a cluster using the remediation engine
@@ -711,7 +798,7 @@ func (r *StoragePolicyReconciler) handleWALCleanup(ctx context.Context, policyOb
 }
 
 // handleAlert handles sending alerts for a cluster
-func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo, evalResult *policy.EvaluationResult) error {
+func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cnpgv1alpha1.StoragePolicy, cluster cnpg.ClusterInfo, evalResult *policy.EvaluationResult, expansion *remediation.ExpansionSupport) error {
 	log := logf.FromContext(ctx)
 
 	// Skip if no alert channels are configured
@@ -751,6 +838,7 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 		},
 		Timestamp: time.Now(),
 	}
+	addExpansionDetails(alert, expansion)
 
 	// Send alert
 	if err := am.SendAlert(ctx, alert); err != nil {
@@ -764,6 +852,19 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 
 	log.Info("Alert sent successfully", "cluster", cluster.Name, "severity", severity)
 	return nil
+}
+
+// addExpansionDetails tells the operator, on a storage alert for a cluster that cannot be
+// expanded in place, that auto-expansion will not help and what to do instead. The details are
+// Alertmanager annotations (not labels), so they never split the alert's identity.
+func addExpansionDetails(alert *alerting.Alert, expansion *remediation.ExpansionSupport) {
+	if expansion == nil || expansion.Supported {
+		return
+	}
+	alert.Details[alerting.DetailExpansionSupported] = "false"
+	alert.Details[alerting.DetailExpansionBlocker] = expansion.Reason
+	alert.Details[alerting.DetailRemediation] = remediation.RollingReplaceRemediation
+	alert.Message += ". Auto-expansion is not possible (" + expansion.Reason + "): " + remediation.RollingReplaceRemediation
 }
 
 // evaluateBackupStatus evaluates the backup status of a cluster and sends alerts if needed

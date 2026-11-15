@@ -1,11 +1,24 @@
+# Base images come through the Harbor proxy cache (dockerhub and gcr projects), pinned by
+# digest, so a base-image republish cannot silently change the toolchain or the CA bundle
+# (cluster-services-1401). The digests are the multi-arch index digests, identical to upstream
+# docker.io/library/golang:1.24 and gcr.io/distroless/static-debian13:nonroot on 2026-11-15.
+# CI's Harbor robot holds pull on both proxy projects. To bump: `docker buildx imagetools
+# inspect <ref-without-digest>` and copy the top-level Digest.
+ARG GOLANG_IMAGE=harbor.support.tools/dockerhub/library/golang:1.24@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804
+ARG DISTROLESS_IMAGE=harbor.support.tools/gcr/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
+
 # Build the manager binary
-FROM golang:1.24 AS builder
+FROM ${GOLANG_IMAGE} AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 
 WORKDIR /workspace
+
+# Go modules through the in-house Athens proxy, falling back to proxy.golang.org on error.
+ARG GOPROXY=https://goproxy.support.tools|https://proxy.golang.org
+ENV GOPROXY=${GOPROXY}
 
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -30,9 +43,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
 # (ECC G3, ECC C3, Root C1, Root G1). static-debian13 drops ECC G3 but still ships
 # C3, C1 and G1, so strip every emSign root from its bundle and fail the build if
 # one survives. No extra fetch: it reuses the two images this build already pulls.
-FROM gcr.io/distroless/static-debian13:nonroot AS cabase
+FROM ${DISTROLESS_IMAGE} AS cabase
 
-FROM --platform=$BUILDPLATFORM golang:1.24 AS cafilter
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS cafilter
 COPY --from=cabase /etc/ssl/certs/ca-certificates.crt /tmp/in.crt
 RUN set -eu; \
     mkdir /tmp/split && cd /tmp/split; \
@@ -55,7 +68,7 @@ RUN set -eu; \
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static-debian13:nonroot
+FROM ${DISTROLESS_IMAGE}
 COPY --from=cafilter /tmp/out.crt /etc/ssl/certs/ca-certificates.crt
 
 LABEL org.opencontainers.image.title="CNPG Storage Manager"

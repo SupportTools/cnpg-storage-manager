@@ -198,6 +198,19 @@ var (
 		[]string{labelCluster, labelNamespace},
 	)
 
+	// ExpansionSupported is 1 when a cluster's StorageClass can expand PVCs in place and 0 when
+	// it cannot (allowVolumeExpansion false/unset, or a provisioner such as rancher.io/local-path
+	// that never resizes). A 0 means auto-expansion is skipped: grow the cluster by rolling
+	// instance replacement instead (cluster-services-1413).
+	ExpansionSupported = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: MetricsNamespace,
+			Name:      "expansion_supported",
+			Help:      "1 if the cluster's PVCs can be expanded in place, 0 if not (per storage class)",
+		},
+		[]string{labelCluster, labelNamespace, "storage_class", "provisioner"},
+	)
+
 	// AlertsSentTotal tracks alerts sent
 	AlertsSentTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -351,6 +364,7 @@ func init() {
 		WALCleanupTotal,
 		WALFilesRemoved,
 		CircuitBreakerState,
+		ExpansionSupported,
 		AlertsSentTotal,
 		AlertsFailedTotal,
 		AlertsSuppressedTotal,
@@ -420,6 +434,19 @@ func SetCircuitBreakerState(cluster, namespace string, open bool) {
 		value = 1.0
 	}
 	CircuitBreakerState.WithLabelValues(cluster, namespace).Set(value)
+}
+
+// SetExpansionSupported replaces a cluster's expansion_supported series with one per storage
+// class, so a class the cluster no longer uses does not linger.
+func SetExpansionSupported(cluster, namespace string, classes map[[2]string]bool) {
+	ExpansionSupported.DeletePartialMatch(prometheus.Labels{labelCluster: cluster, labelNamespace: namespace})
+	for k, ok := range classes {
+		v := 0.0
+		if ok {
+			v = 1
+		}
+		ExpansionSupported.WithLabelValues(cluster, namespace, k[0], k[1]).Set(v)
+	}
 }
 
 // RecordAlertFailed records an alert send that a channel did not accept
