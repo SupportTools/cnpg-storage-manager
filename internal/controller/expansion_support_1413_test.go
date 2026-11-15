@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -131,7 +132,7 @@ func TestHandleAlert_ExpansionUnsupportedAnnotations(t *testing.T) {
 		t.Fatalf("payload %s: %v", body, err)
 	}
 	a := alerts[0]
-	if a.Annotations["expansion_supported"] != "false" ||
+	if a.Annotations["expansion_supported"] != strconv.FormatBool(false) ||
 		!strings.Contains(a.Annotations["remediation"], "rolling instance replacement") ||
 		!strings.Contains(a.Annotations["expansion_blocker"], "local-path-cnpg") {
 		t.Errorf("annotations = %v", a.Annotations)
