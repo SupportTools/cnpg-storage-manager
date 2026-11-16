@@ -585,9 +585,9 @@ const statusExpansionUnsupported = "ExpansionUnsupported"
 // reads "upWAL" as "pw" and flags a hardcoded credential.)
 const (
 	statusDryRunWouldCleanWAL = "DryRun-WouldCleanupWAL"
-	statusDryRunWouldExpand     = "DryRun-WouldExpand"
-	statusWALCleanup            = "WALCleanup"
-	statusExpanding             = "Expanding"
+	statusDryRunWouldExpand   = "DryRun-WouldExpand"
+	statusWALCleanup          = "WALCleanup"
+	statusExpanding           = "Expanding"
 )
 
 // expansionSupport works out whether the cluster's PVCs can be expanded in place, records the
