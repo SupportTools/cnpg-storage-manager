@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-16
+
+### Changed
+
+- **The expansion band alerts as `warning`, not `critical`** (cluster-services-1416, operator
+  decision). Usage between the expansion and emergency thresholds (85-90% by default) is a band
+  the manager remediates itself by expanding the volume, so its alert must not page. Both the
+  controller's alert severity and the evaluator's alert recommendation now say `warning` for the
+  expansion level; warning, critical and emergency are unchanged. v0.3.1 had mapped it to
+  `critical`.
+
 ## [0.3.1] - 2026-11-15
 
 ### Fixed
