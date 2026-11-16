@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-15
+
+### Fixed
+
+- **Auto-remediation never ran** (cluster-services-1416). The alert recommendation had priority 0,
+  which outranked WAL cleanup (1) and expansion (1/2), and the controller acted only on the single
+  highest-priority action, so it always just alerted. Now each cycle takes one remediation (WAL
+  cleanup, else expansion) when it is recommended, out of cooldown and possible on the storage,
+  and sends the alert as well: alongside, or as the fallback when nothing could run
+  (expansion unsupported, cooldown, dry-run). `suppressDuringRemediation` holds the alert back only
+  when a remediation actually ran. Dry-run logs what it WOULD do with level, usage and reason.
+  The v0.3.0 `expansionSupported=false` skip is kept: such a cluster is never expanded.
+- **The expansion band sent no alert**: the expansion threshold level had no alert severity mapped,
+  so a cluster between the expansion and emergency thresholds was silent. It now alerts as
+  `critical` (it sits above the critical threshold).
+- **Panic on a WAL cleanup in cooldown**: the cooldown check wrote into a nil `Parameters` map.
+
 ## [0.3.0] - 2026-11-15
 
 ### Added

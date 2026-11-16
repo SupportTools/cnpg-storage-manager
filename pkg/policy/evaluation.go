@@ -86,6 +86,16 @@ const (
 	ActionTypeWALCleanup ActionType = "wal-cleanup"
 )
 
+// AlertPriority is the priority of the alert recommendation. Lower numbers win, and the
+// remediating actions use 1 (WAL cleanup) and 2 (expand), so the alert always ranks last: it is
+// sent alongside a remediation or as the fallback when none can run, never instead of one
+// (cluster-services-1416: with the alert at 0 it outranked expand and WAL cleanup, so
+// auto-remediation never ran).
+const AlertPriority = 100
+
+// severityCritical is the alert severity parameter for critical, expansion and emergency levels.
+const severityCritical = string(ThresholdLevelCritical)
+
 // Evaluator evaluates storage metrics against policy thresholds
 type Evaluator struct {
 	// HysteresisPercent is the percentage below threshold before clearing alerts
@@ -167,9 +177,10 @@ func (e *Evaluator) GetRecommendedActions(
 		// WAL cleanup first (faster), then expansion
 		if policy.Spec.WALCleanup.Enabled {
 			actions = append(actions, ActionRecommendation{
-				Action:   ActionTypeWALCleanup,
-				Reason:   "Emergency threshold breached - attempting WAL cleanup first",
-				Priority: 1,
+				Action:     ActionTypeWALCleanup,
+				Reason:     "Emergency threshold breached - attempting WAL cleanup first",
+				Priority:   1,
+				Parameters: map[string]interface{}{},
 			})
 		}
 		if policy.Spec.Expansion.Enabled {
@@ -185,9 +196,9 @@ func (e *Evaluator) GetRecommendedActions(
 		actions = append(actions, ActionRecommendation{
 			Action:   ActionTypeAlert,
 			Reason:   result.Message,
-			Priority: 0,
+			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "critical",
+				paramSeverity: severityCritical,
 			},
 		})
 
@@ -205,9 +216,9 @@ func (e *Evaluator) GetRecommendedActions(
 		actions = append(actions, ActionRecommendation{
 			Action:   ActionTypeAlert,
 			Reason:   result.Message,
-			Priority: 0,
+			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "warning",
+				paramSeverity: severityCritical,
 			},
 		})
 
@@ -215,9 +226,9 @@ func (e *Evaluator) GetRecommendedActions(
 		actions = append(actions, ActionRecommendation{
 			Action:   ActionTypeAlert,
 			Reason:   result.Message,
-			Priority: 0,
+			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "critical",
+				paramSeverity: severityCritical,
 			},
 		})
 
@@ -225,7 +236,7 @@ func (e *Evaluator) GetRecommendedActions(
 		actions = append(actions, ActionRecommendation{
 			Action:   ActionTypeAlert,
 			Reason:   result.Message,
-			Priority: 0,
+			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
 				paramSeverity: "warning",
 			},
@@ -351,6 +362,10 @@ func (e *Evaluator) FullEvaluation(
 
 	// Check cooldowns and filter actions
 	for _, action := range actions {
+		if action.Parameters == nil {
+			// The cooldown/suppression checks below write into Parameters.
+			action.Parameters = map[string]interface{}{}
+		}
 		switch action.Action {
 		case ActionTypeExpand:
 			if allowed, remaining := e.CheckCooldown(ctx.LastExpansion, policy.Spec.Expansion.CooldownMinutes); !allowed {
@@ -417,4 +432,54 @@ func (r *EvaluationResult) GetHighestPriorityAction() *ActionRecommendation {
 		}
 	}
 	return highest
+}
+
+// ActionPlan is what the controller does for one cluster in one reconcile cycle.
+type ActionPlan struct {
+	// Remediation is the remediating action to take (WAL cleanup or expand), or nil when none
+	// is recommended, allowed (cooldown) and possible. At most one runs per cycle; the next
+	// cycle re-measures usage before taking another.
+	Remediation *ActionRecommendation
+	// Alert is the alert to send, or nil when usage is below every threshold. It is sent
+	// alongside the remediation, or as the fallback when there is none.
+	Alert *ActionRecommendation
+	// ExpansionSkipped is true when an expansion was recommended and allowed but the storage
+	// cannot be expanded in place, so it was left out of the plan.
+	ExpansionSkipped bool
+}
+
+// isBlocked reports whether the action was blocked by a cooldown.
+func (a *ActionRecommendation) isBlocked() bool {
+	blocked, ok := a.Parameters["blocked"].(bool)
+	return ok && blocked
+}
+
+// PlanActions orders the evaluation's actions (cluster-services-1416). Remediating actions come
+// first, by priority (WAL cleanup before expand), skipping any that a cooldown blocks and, when
+// expansionPossible is false, any expansion (the storage class cannot expand in place,
+// cluster-services-1413). The alert is never chosen instead of a remediation; it is returned
+// separately so the caller sends it as well.
+func (r *EvaluationResult) PlanActions(expansionPossible bool) ActionPlan {
+	var plan ActionPlan
+	for i := range r.Actions {
+		action := &r.Actions[i]
+		switch action.Action {
+		case ActionTypeAlert:
+			if plan.Alert == nil || action.Priority < plan.Alert.Priority {
+				plan.Alert = action
+			}
+		case ActionTypeExpand, ActionTypeWALCleanup:
+			if action.isBlocked() {
+				continue
+			}
+			if action.Action == ActionTypeExpand && !expansionPossible {
+				plan.ExpansionSkipped = true
+				continue
+			}
+			if plan.Remediation == nil || action.Priority < plan.Remediation.Priority {
+				plan.Remediation = action
+			}
+		}
+	}
+	return plan
 }
