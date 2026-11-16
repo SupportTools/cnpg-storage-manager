@@ -180,9 +180,26 @@ kubectl logs -f deployment/cnpg-storage-manager -n cnpg-storage-manager
 
 Example dry-run log output:
 ```
-INFO  DryRun: Would expand PVCs  {"cluster": "my-postgres", "globalDryRun": true, "policyDryRun": false}
-INFO  DryRun: Would cleanup WAL  {"cluster": "my-postgres", "globalDryRun": true, "policyDryRun": false}
+INFO  DryRun: Would expand PVCs  {"cluster": "my-postgres", "namespace": "db", "level": "expansion", "usagePercent": 87.2, "reason": "Expansion threshold breached", "globalDryRun": true, "policyDryRun": false}
+INFO  DryRun: Would cleanup WAL  {"cluster": "my-postgres", "namespace": "db", "level": "emergency", "usagePercent": 93.0, "reason": "Emergency threshold breached - attempting WAL cleanup first", "globalDryRun": true, "policyDryRun": false}
 ```
+
+### Order of actions
+
+Each reconcile cycle, per cluster:
+
+1. **One remediation**, if one is recommended, allowed and possible. At the emergency threshold
+   that is WAL cleanup (when `walCleanup.enabled`), then expansion; at the expansion threshold,
+   expansion. An action whose cooldown has not run out is skipped and the next one is tried.
+   Expansion is skipped on storage that cannot expand in place (`expansionSupported: false`;
+   status `ExpansionUnsupported`). In dry-run the remediation is only logged (`DryRun: Would ...`,
+   status `DryRun-Would*`). The next cycle re-measures before taking another.
+2. **The alert**, at every level from warning up. It is sent alongside the remediation, or as the
+   fallback when none could run. It is held back only when `alerting.suppressDuringRemediation`
+   is set and a remediation actually ran this cycle. The expansion level alerts as `critical`.
+
+Before v0.3.1 the alert outranked both remediations, so auto-remediation never ran and the
+expansion band (expansion threshold up to emergency) sent no alert.
 
 ### Transitioning to Live Mode
 

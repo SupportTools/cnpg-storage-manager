@@ -31,15 +31,12 @@ jobs:
       - name: Verify kind installation
         run: kind version
 
-      # The e2e job has no Harbor login (only the master docker job gets one, via Vault OIDC), and
-      # the Harbor gcr proxy project is private, so the e2e image takes distroless from gcr.io at
-      # the SAME index digest as the Dockerfile default. golang still comes through the public
-      # Harbor dockerhub proxy. Pinned-upstream fallback tier; follow-up cluster-services-1414
-      # moves it onto Harbor. Keep the digest in step with the Dockerfile's DISTROLESS_IMAGE.
+      # The e2e job has no Harbor login (only the master docker job gets one, via Vault OIDC). Both
+      # bases come through the PUBLIC Harbor proxy projects anonymously: golang via `dockerhub`,
+      # distroless via `gcr` (made public 2026-11-16, cluster-services-1414), so the Dockerfile
+      # defaults (Harbor refs pinned by index digest) are used unchanged. Fetch tier: our Harbor
+      # proxy cache. No gcr.io fallback.
       - name: Running Test e2e
-        env:
-          DOCKER_BUILD_ARGS: >-
-            --build-arg DISTROLESS_IMAGE=gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
         run: |
           go mod tidy
           make test-e2e

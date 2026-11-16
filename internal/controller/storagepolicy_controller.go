@@ -460,64 +460,8 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 
 	// Can this cluster's storage be expanded in place at all? (cluster-services-1413)
 	expansion := r.expansionSupport(ctx, cluster)
-	expansionBlocked := expansion != nil && !expansion.Supported
 
-	// Process recommended actions
-	//nolint:goconst // "Healthy" is a descriptive status string, not a constant
-	status := "Healthy"
-	if evalResult.HasPendingActions() {
-		action := evalResult.GetHighestPriorityAction()
-		if action != nil {
-			switch action.Action {
-			case policy.ActionTypeExpand:
-				dryRun := r.isDryRun(policyObj)
-				if expansionBlocked {
-					// Never raise a PVC request the storage cannot honour: on local-path it
-					// would sit at ExternalExpanding forever. Tell the operator instead.
-					log.Info("Skipping auto-expand: storage cannot be expanded in place",
-						"cluster", cluster.Name, "namespace", cluster.Namespace,
-						"reason", expansion.Reason, "remediation", remediation.RollingReplaceRemediation)
-					status = statusExpansionUnsupported
-					if err := r.handleAlert(ctx, policyObj, cluster, evalResult, expansion); err != nil {
-						log.Error(err, "Failed to send alert", "cluster", cluster.Name)
-					}
-				} else if !dryRun {
-					if err := r.handleExpansion(ctx, policyObj, cluster, evalResult, clusterAnnotations); err != nil {
-						log.Error(err, "Expansion failed", "cluster", cluster.Name)
-						status = "ExpansionFailed"
-					} else {
-						status = "Expanding"
-					}
-				} else {
-					log.Info("DryRun: Would expand PVCs", "cluster", cluster.Name, "globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
-					status = "DryRun-WouldExpand"
-				}
-
-			case policy.ActionTypeWALCleanup:
-				dryRun := r.isDryRun(policyObj)
-				if !dryRun {
-					if err := r.handleWALCleanup(ctx, policyObj, cluster, clusterAnnotations); err != nil {
-						log.Error(err, "WAL cleanup failed", "cluster", cluster.Name)
-						status = "WALCleanupFailed"
-					} else {
-						status = "WALCleanup"
-					}
-				} else {
-					log.Info("DryRun: Would cleanup WAL", "cluster", cluster.Name, "globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
-					status = "DryRun-WouldCleanupWAL"
-				}
-
-			case policy.ActionTypeAlert:
-				// Send alert if not suppressed during remediation
-				if !policyObj.Spec.Alerting.SuppressDuringRemediation || status == "Healthy" {
-					if err := r.handleAlert(ctx, policyObj, cluster, evalResult, expansion); err != nil {
-						log.Error(err, "Failed to send alert", "cluster", cluster.Name)
-					}
-				}
-				status = fmt.Sprintf("Alert-%s", evalResult.ThresholdResult.Level)
-			}
-		}
-	}
+	status := r.applyActions(ctx, policyObj, cluster, evalResult, expansion, clusterAnnotations)
 
 	// Update cluster annotations
 	clusterAnnotations.SetManaged(true)
@@ -554,6 +498,83 @@ func (r *StoragePolicyReconciler) processCluster(ctx context.Context, policyObj 
 		}
 	}
 	return managed, nil
+}
+
+// applyActions carries out one cycle's plan for a cluster and returns its ManagedCluster status
+// (cluster-services-1416). Order: the remediating action (WAL cleanup, else expand) runs when it
+// is recommended, allowed by its cooldown and possible on the storage; dry-run only logs what it
+// WOULD do. The alert is then sent as well: alongside the remediation, or as the fallback when
+// nothing could run (expansion unsupported, cooldown, dry-run). The only time it is held back is
+// spec.alerting.suppressDuringRemediation with a remediation that actually ran this cycle.
+func (r *StoragePolicyReconciler) applyActions(
+	ctx context.Context,
+	policyObj *cnpgv1alpha1.StoragePolicy,
+	cluster cnpg.ClusterInfo,
+	evalResult *policy.EvaluationResult,
+	expansion *remediation.ExpansionSupport,
+	clusterAnnotations *clusterAnnotationsWrapper,
+) string {
+	log := logf.FromContext(ctx)
+	expansionBlocked := expansion != nil && !expansion.Supported
+	plan := evalResult.PlanActions(!expansionBlocked)
+	dryRun := r.isDryRun(policyObj)
+	level := evalResult.ThresholdResult.Level
+	usage := evalResult.ThresholdResult.CurrentUsagePercent
+
+	//nolint:goconst // "Healthy" is a descriptive status string, not a constant
+	status := "Healthy"
+	if plan.ExpansionSkipped {
+		// Never raise a PVC request the storage cannot honour: on local-path it would sit at
+		// ExternalExpanding forever. The alert below carries the remediation instead.
+		log.Info("Skipping auto-expand: storage cannot be expanded in place",
+			"cluster", cluster.Name, "namespace", cluster.Namespace, "level", level,
+			"reason", expansion.Reason, "remediation", remediation.RollingReplaceRemediation)
+		status = statusExpansionUnsupported
+	}
+
+	remediated := false
+	if action := plan.Remediation; action != nil {
+		switch action.Action {
+		case policy.ActionTypeWALCleanup:
+			if dryRun {
+				log.Info("DryRun: Would cleanup WAL", "cluster", cluster.Name, "namespace", cluster.Namespace,
+					"level", level, "usagePercent", usage, "reason", action.Reason,
+					"globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
+				status = "DryRun-WouldCleanupWAL"
+			} else if err := r.handleWALCleanup(ctx, policyObj, cluster, clusterAnnotations); err != nil {
+				log.Error(err, "WAL cleanup failed", "cluster", cluster.Name)
+				status = "WALCleanupFailed"
+			} else {
+				status = "WALCleanup"
+				remediated = true
+			}
+		case policy.ActionTypeExpand:
+			if dryRun {
+				log.Info("DryRun: Would expand PVCs", "cluster", cluster.Name, "namespace", cluster.Namespace,
+					"level", level, "usagePercent", usage, "reason", action.Reason,
+					"globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
+				status = "DryRun-WouldExpand"
+			} else if err := r.handleExpansion(ctx, policyObj, cluster, evalResult, clusterAnnotations); err != nil {
+				log.Error(err, "Expansion failed", "cluster", cluster.Name)
+				status = "ExpansionFailed"
+			} else {
+				status = "Expanding"
+				remediated = true
+			}
+		}
+	}
+
+	if plan.Alert != nil {
+		if remediated && policyObj.Spec.Alerting.SuppressDuringRemediation {
+			log.V(1).Info("Alert suppressed during remediation", "cluster", cluster.Name, "status", status)
+		} else if err := r.handleAlert(ctx, policyObj, cluster, evalResult, expansion); err != nil {
+			log.Error(err, "Failed to send alert", "cluster", cluster.Name)
+		}
+		if status == "Healthy" {
+			status = fmt.Sprintf("Alert-%s", level)
+		}
+	}
+	return status
 }
 
 // statusExpansionUnsupported is the ManagedCluster status when an expansion was due but the
@@ -816,7 +837,9 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 	switch evalResult.ThresholdResult.Level {
 	case policy.ThresholdLevelWarning:
 		severity = alerting.AlertSeverityWarning
-	case policy.ThresholdLevelCritical:
+	case policy.ThresholdLevelCritical, policy.ThresholdLevelExpansion:
+		// The expansion threshold sits above the critical one, so it alerts as critical. Before
+		// cluster-services-1416 it fell through to "no alert" and the 85-90% band was silent.
 		severity = alerting.AlertSeverityCritical
 	case policy.ThresholdLevelEmergency:
 		severity = alerting.AlertSeverityEmergency
