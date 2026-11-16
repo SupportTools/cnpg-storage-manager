@@ -844,11 +844,12 @@ func (r *StoragePolicyReconciler) handleAlert(ctx context.Context, policyObj *cn
 	// Map threshold level to alert severity
 	var severity alerting.AlertSeverity
 	switch evalResult.ThresholdResult.Level {
-	case policy.ThresholdLevelWarning:
+	case policy.ThresholdLevelWarning, policy.ThresholdLevelExpansion:
+		// The expansion band (expansion..emergency, 85-90% by default) is one the manager
+		// remediates itself by expanding the volume, so it alerts as a warning, not a page
+		// (cluster-services-1416 operator decision). Before v0.3.1 it fell through to "no alert".
 		severity = alerting.AlertSeverityWarning
-	case policy.ThresholdLevelCritical, policy.ThresholdLevelExpansion:
-		// The expansion threshold sits above the critical one, so it alerts as critical. Before
-		// cluster-services-1416 it fell through to "no alert" and the 85-90% band was silent.
+	case policy.ThresholdLevelCritical:
 		severity = alerting.AlertSeverityCritical
 	case policy.ThresholdLevelEmergency:
 		severity = alerting.AlertSeverityEmergency

@@ -93,8 +93,13 @@ const (
 // auto-remediation never ran).
 const AlertPriority = 100
 
-// severityCritical is the alert severity parameter for critical, expansion and emergency levels.
+// severityCritical is the alert severity parameter for the critical and emergency levels.
 const severityCritical = string(ThresholdLevelCritical)
+
+// severityWarning is the alert severity parameter for the warning and expansion levels. The
+// expansion band (expansion..emergency, 85-90% by default) is one the manager remediates itself
+// by expanding the volume, so it is a warning, not a page (cluster-services-1416 operator decision).
+const severityWarning = string(ThresholdLevelWarning)
 
 // Evaluator evaluates storage metrics against policy thresholds
 type Evaluator struct {
@@ -218,7 +223,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: severityCritical,
+				paramSeverity: severityWarning,
 			},
 		})
 
@@ -238,7 +243,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "warning",
+				paramSeverity: severityWarning,
 			},
 		})
 

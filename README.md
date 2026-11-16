@@ -196,7 +196,9 @@ Each reconcile cycle, per cluster:
    status `DryRun-Would*`). The next cycle re-measures before taking another.
 2. **The alert**, at every level from warning up. It is sent alongside the remediation, or as the
    fallback when none could run. It is held back only when `alerting.suppressDuringRemediation`
-   is set and a remediation actually ran this cycle. The expansion level alerts as `critical`.
+   is set and a remediation actually ran this cycle. Severity by level: warning -> `warning`,
+   critical -> `critical`, expansion -> `warning` (the manager remediates that band itself by
+   expanding, so it must not page; since v0.3.2), emergency -> `emergency`.
 
 Before v0.3.1 the alert outranked both remediations, so auto-remediation never ran and the
 expansion band (expansion threshold up to emergency) sent no alert.
