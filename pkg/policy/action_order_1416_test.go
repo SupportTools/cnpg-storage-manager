@@ -22,7 +22,9 @@ func remediatingPolicy() *cnpgv1alpha1.StoragePolicy {
 	return p
 }
 
-func evaluate(t *testing.T, usedPercent int64, p *cnpgv1alpha1.StoragePolicy, lastExpand, lastWAL *time.Time) *EvaluationResult {
+func evaluate(
+	t *testing.T, usedPercent int64, p *cnpgv1alpha1.StoragePolicy, lastExpand, lastWAL *time.Time,
+) *EvaluationResult {
 	t.Helper()
 	res, err := NewEvaluator().FullEvaluation(EvaluationContext{
 		ClusterName: "c", Namespace: "n",

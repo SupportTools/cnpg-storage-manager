@@ -540,12 +540,12 @@ func (r *StoragePolicyReconciler) applyActions(
 				log.Info("DryRun: Would cleanup WAL", "cluster", cluster.Name, "namespace", cluster.Namespace,
 					"level", level, "usagePercent", usage, "reason", action.Reason,
 					"globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
-				status = "DryRun-WouldCleanupWAL"
+				status = statusDryRunWouldCleanupWAL
 			} else if err := r.handleWALCleanup(ctx, policyObj, cluster, clusterAnnotations); err != nil {
 				log.Error(err, "WAL cleanup failed", "cluster", cluster.Name)
 				status = "WALCleanupFailed"
 			} else {
-				status = "WALCleanup"
+				status = statusWALCleanup
 				remediated = true
 			}
 		case policy.ActionTypeExpand:
@@ -553,12 +553,12 @@ func (r *StoragePolicyReconciler) applyActions(
 				log.Info("DryRun: Would expand PVCs", "cluster", cluster.Name, "namespace", cluster.Namespace,
 					"level", level, "usagePercent", usage, "reason", action.Reason,
 					"globalDryRun", r.GlobalDryRun, "policyDryRun", policyObj.Spec.DryRun)
-				status = "DryRun-WouldExpand"
+				status = statusDryRunWouldExpand
 			} else if err := r.handleExpansion(ctx, policyObj, cluster, evalResult, clusterAnnotations); err != nil {
 				log.Error(err, "Expansion failed", "cluster", cluster.Name)
 				status = "ExpansionFailed"
 			} else {
-				status = "Expanding"
+				status = statusExpanding
 				remediated = true
 			}
 		}
@@ -580,6 +580,14 @@ func (r *StoragePolicyReconciler) applyActions(
 // statusExpansionUnsupported is the ManagedCluster status when an expansion was due but the
 // cluster's storage cannot be expanded in place.
 const statusExpansionUnsupported = "ExpansionUnsupported"
+
+// ManagedCluster statuses set by applyActions for a remediation.
+const (
+	statusDryRunWouldCleanupWAL = "DryRun-WouldCleanupWAL"
+	statusDryRunWouldExpand     = "DryRun-WouldExpand"
+	statusWALCleanup            = "WALCleanup"
+	statusExpanding             = "Expanding"
+)
 
 // expansionSupport works out whether the cluster's PVCs can be expanded in place, records the
 // expansion_supported gauge, and logs when the verdict changes. nil = could not be determined.

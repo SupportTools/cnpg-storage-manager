@@ -93,6 +93,9 @@ const (
 // auto-remediation never ran).
 const AlertPriority = 100
 
+// severityCritical is the alert severity parameter for critical, expansion and emergency levels.
+const severityCritical = string(ThresholdLevelCritical)
+
 // Evaluator evaluates storage metrics against policy thresholds
 type Evaluator struct {
 	// HysteresisPercent is the percentage below threshold before clearing alerts
@@ -195,7 +198,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "critical",
+				paramSeverity: severityCritical,
 			},
 		})
 
@@ -215,7 +218,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "critical",
+				paramSeverity: severityCritical,
 			},
 		})
 
@@ -225,7 +228,7 @@ func (e *Evaluator) GetRecommendedActions(
 			Reason:   result.Message,
 			Priority: AlertPriority,
 			Parameters: map[string]interface{}{
-				paramSeverity: "critical",
+				paramSeverity: severityCritical,
 			},
 		})
 
